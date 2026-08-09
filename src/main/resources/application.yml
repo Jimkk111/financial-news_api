@@ -1,0 +1,129 @@
+server:
+  port: 3000
+
+spring:
+  profiles:
+    active: dev
+  application:
+    name: financial-news-api
+
+  # 数据源配置
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://localhost:3306/cls_financial_news_database?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+    username: root
+    password: 123456
+    hikari:
+      minimum-idle: 5
+      maximum-pool-size: 20
+      idle-timeout: 300000
+      max-lifetime: 1200000
+      connection-timeout: 30000
+
+  # Redis 配置
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      password:
+      database: 0
+      lettuce:
+        pool:
+          max-active: 8
+          max-idle: 8
+          min-idle: 0
+          max-wait: -1ms
+      timeout: 3000ms
+
+  # 邮件配置
+  mail:
+    host: smtp.example.com
+    port: 587
+    username: your_email@example.com
+    password: your_smtp_password
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+            required: true
+    default-encoding: UTF-8
+
+  # 文件上传配置
+  servlet:
+    multipart:
+      enabled: true
+      max-file-size: 5MB
+      max-request-size: 5MB
+
+  # Jackson 配置
+  jackson:
+    date-format: yyyy-MM-dd HH:mm:ss
+    time-zone: Asia/Shanghai
+    serialization:
+      write-dates-as-timestamps: false
+
+# MyBatis-Plus 配置
+mybatis-plus:
+  mapper-locations: classpath*:/mapper/**/*.xml
+  global-config:
+    db-config:
+      id-type: auto
+      logic-delete-field: deletedAt
+      logic-delete-value: "NOW()"
+      logic-not-delete-value: "NULL"
+  configuration:
+    map-underscore-to-camel-case: true
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+
+# Knife4j (Swagger) 配置
+knife4j:
+  enable: true
+  setting:
+    language: zh_cn
+    enable-swagger-models: true
+    enable-document-manage: true
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+  api-docs:
+    path: /v3/api-docs
+  group-configs:
+    - group: default
+      paths-to-match: /api/**
+      packages-to-scan: com.financial.news.controller
+
+# JWT 配置
+jwt:
+  secret: your_jwt_secret_key_here_change_in_production
+  expiration: 604800000  # 7天，单位毫秒
+  issuer: cls-financial-news
+  audience: cls-financial-news-users
+
+# AI 服务配置（OpenAI 兼容接口）
+ai:
+  api-key: your_ai_api_key
+  api-base-url: https://api.openai.com/v1
+  model: gpt-3.5-turbo
+  max-tokens: 2000
+  temperature: 0.7
+
+# 文件上传配置
+upload:
+  storage-type: local
+  max-size: 5242880
+  avatar-max-size: 2097152
+  allowed-types: image/jpeg,image/png,image/gif,image/webp
+  dir: uploads
+  url-prefix: /uploads
+
+# 日志配置
+logging:
+  level:
+    com.financial.news: debug
+    org.springframework.security: info
+  file:
+    path: ./logs
+    name: ./logs/financial-news-api.log
