@@ -1,0 +1,91 @@
+# ==================== Maven ====================
+target/
+!.mvn/wrapper/maven-wrapper.jar
+!**/src/main/**/target/
+!**/src/test/**/target/
+pom.xml.versionsBackup
+dependency-reduced-pom.xml
+*.mvn
+.mvn/
+mvn*.txt
+
+# ==================== IDE ====================
+# IntelliJ IDEA
+.idea/*
+!.idea/.gitignore
+!.idea/compiler.xml
+!.idea/encodings.xml
+!.idea/jarRepositories.xml
+!.idea/misc.xml
+*.iml
+*.iws
+out/
+
+# VS Code
+.vscode/
+
+# Eclipse
+.classpath
+.project
+.settings/
+bin/
+*.springBeans
+
+# NetBeans
+nbproject/
+
+# ==================== Java ====================
+*.class
+*.jar
+*.war
+*.ear
+*.nar
+*.log
+*.ctxt
+hs_err_pid*
+replay_pid*
+
+# ==================== Spring Boot ====================
+*.jar.original
+
+# ==================== Logs ====================
+logs/
+*.log
+
+# ==================== OS ====================
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+
+# Linux
+*~
+.directory
+
+# ==================== Uploads / Runtime ====================
+uploads/
+data/
+
+# ==================== Environment / Secrets ====================
+*.env
+*.env.local
+*.env.*.local
+.env.*
+application-local.yml
+application-*.yml.bak
+!application.yml
+
+# ==================== Misc ====================
+*.tmp
+*.temp
+*.bak
+*.swp
+*~.nib
