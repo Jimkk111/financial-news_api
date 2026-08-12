@@ -1,10 +1,12 @@
 package com.financial.news.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.financial.news.common.BusinessException;
 import com.financial.news.common.ErrorCode;
+import com.financial.news.dto.response.FavoriteVO;
 import com.financial.news.entity.Favorite;
 import com.financial.news.entity.News;
 import com.financial.news.mapper.FavoriteMapper;
@@ -30,12 +32,11 @@ public class FavoriteService extends ServiceImpl<FavoriteMapper, Favorite> {
     private final NewsMapper newsMapper;
 
     /**
-     * 获取收藏列表（分页）
+     * 获取收藏列表（分页，联表查询新闻信息）
      */
-    public Page<Favorite> listFavorites(Integer userId, int page, int pageSize) {
-        Page<Favorite> p = new Page<>(page, Math.min(pageSize, 50));
-        return favoriteMapper.selectPage(p,
-                new LambdaQueryWrapper<Favorite>().eq(Favorite::getUserId, userId).orderByDesc(Favorite::getCreatedAt));
+    public IPage<FavoriteVO> listFavorites(Integer userId, int page, int pageSize) {
+        Page<FavoriteVO> p = new Page<>(page, Math.min(pageSize, 50));
+        return favoriteMapper.selectFavoriteNewsPage(p, userId);
     }
 
     /**

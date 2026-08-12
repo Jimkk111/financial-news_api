@@ -32,6 +32,7 @@ public class LoginResponse {
     public static class UserInfo {
         private Integer id;
         private String uid;
+        private String displayId;
         private String username;
         private String email;
         private String avatar;

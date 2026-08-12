@@ -1,9 +1,9 @@
 package com.financial.news.controller;
 
-import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.financial.news.common.Result;
 import com.financial.news.dto.request.FavoriteRequest;
-import com.financial.news.entity.Favorite;
+import com.financial.news.dto.response.FavoriteVO;
 import com.financial.news.security.JwtUserDetails;
 import com.financial.news.service.FavoriteService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -32,10 +32,10 @@ public class FavoriteController {
 
     @Operation(summary = "获取收藏列表")
     @GetMapping
-    public Result<Result.PageResult<Favorite>> list(@RequestParam(defaultValue = "1") int page,
+    public Result<Result.PageResult<FavoriteVO>> list(@RequestParam(defaultValue = "1") int page,
                           @RequestParam(defaultValue = "10") int pageSize) {
         JwtUserDetails u = JwtUserDetails.getCurrentUser();
-        Page<Favorite> r = favoriteService.listFavorites(u.getUserId(), page, pageSize);
+        IPage<FavoriteVO> r = favoriteService.listFavorites(u.getUserId(), page, pageSize);
         return Result.ok(new Result.PageResult<>(
                 r.getRecords(), r.getTotal(), (int) r.getCurrent(), (int) r.getSize()));
     }

@@ -1,9 +1,9 @@
 package com.financial.news.controller;
 
-import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.financial.news.common.Result;
 import com.financial.news.dto.request.HistoryRequest;
-import com.financial.news.entity.History;
+import com.financial.news.dto.response.HistoryVO;
 import com.financial.news.security.JwtUserDetails;
 import com.financial.news.service.HistoryService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -30,10 +30,10 @@ public class HistoryController {
 
     @Operation(summary = "获取浏览历史")
     @GetMapping
-    public Result<Result.PageResult<History>> list(@RequestParam(defaultValue = "1") int page,
+    public Result<Result.PageResult<HistoryVO>> list(@RequestParam(defaultValue = "1") int page,
                           @RequestParam(defaultValue = "10") int pageSize) {
         JwtUserDetails u = JwtUserDetails.getCurrentUser();
-        Page<History> r = historyService.listHistory(u.getUserId(), page, pageSize);
+        IPage<HistoryVO> r = historyService.listHistory(u.getUserId(), page, pageSize);
         return Result.ok(new Result.PageResult<>(
                 r.getRecords(), r.getTotal(), (int) r.getCurrent(), (int) r.getSize()));
     }

@@ -1,11 +1,13 @@
 package com.financial.news.service;
 
+import cn.hutool.core.bean.BeanUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.financial.news.common.BusinessException;
 import com.financial.news.common.ErrorCode;
 import com.financial.news.common.Result;
+import com.financial.news.dto.response.NewsDetailVO;
 import com.financial.news.entity.*;
 import com.financial.news.mapper.*;
 import lombok.RequiredArgsConstructor;
@@ -62,13 +64,27 @@ public class NewsService extends ServiceImpl<NewsMapper, News> {
     }
 
     /**
-     * 获取新闻详情（带缓存）
+     * 获取新闻详情（带缓存，附带标签与分类）
      */
-    public News getNewsDetail(Integer id) {
-        String cacheKey = CACHE_NEWS_DETAIL + id;
+    public NewsDetailVO getNewsDetail(Integer id) {
+        News news = getNewsFromCache(CACHE_NEWS_DETAIL + id, id);
+
+        NewsDetailVO vo = new NewsDetailVO();
+        BeanUtil.copyProperties(news, vo);
+        vo.setTags(getNewsTags(id));
+        if (news.getCategoryId() != null) {
+            vo.setCategory(categoryMapper.selectById(news.getCategoryId()));
+        }
+        return vo;
+    }
+
+    /**
+     * 从缓存或数据库获取新闻（基础信息，不含标签）
+     */
+    private News getNewsFromCache(String cacheKey, Integer id) {
         Object cached = redisTemplate.opsForValue().get(cacheKey);
-        if (cached instanceof News) {
-            return (News) cached;
+        if (cached instanceof News news) {
+            return news;
         }
 
         News news = newsMapper.selectById(id);

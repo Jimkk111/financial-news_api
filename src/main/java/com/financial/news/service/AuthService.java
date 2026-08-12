@@ -163,6 +163,7 @@ public class AuthService extends ServiceImpl<UserMapper, User> {
                 .user(LoginResponse.UserInfo.builder()
                         .id(user.getId())
                         .uid(user.getUid())
+                        .displayId(user.getDisplayId())
                         .username(user.getUsername())
                         .email(user.getEmail())
                         .avatar(user.getAvatar())

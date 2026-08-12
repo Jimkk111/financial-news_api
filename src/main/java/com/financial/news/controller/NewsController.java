@@ -2,6 +2,7 @@ package com.financial.news.controller;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.financial.news.common.Result;
+import com.financial.news.dto.response.NewsDetailVO;
 import com.financial.news.entity.Category;
 import com.financial.news.entity.News;
 import com.financial.news.service.NewsService;
@@ -36,7 +37,7 @@ public class NewsController {
 
     @Operation(summary = "获取新闻详情")
     @GetMapping("/{id}")
-    public Result<News> getNewsDetail(@PathVariable Integer id) {
+    public Result<NewsDetailVO> getNewsDetail(@PathVariable Integer id) {
         return Result.ok(newsService.getNewsDetail(id));
     }
 
