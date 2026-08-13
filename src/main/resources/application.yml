@@ -101,6 +101,11 @@ jwt:
   expiration: 604800000  # 7天，单位毫秒
   issuer: cls-financial-news
   audience: cls-financial-news-users
+  # JWT Cookie 配置
+  cookie:
+    name: jwt_token
+    secure: false       # 仅 HTTPS 传输；生产环境必须改为 true
+    same-site: Lax      # 跨站请求限制：Lax / Strict / None
 
 # AI 服务配置（OpenAI 兼容接口）
 ai:

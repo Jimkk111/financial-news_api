@@ -3,9 +3,11 @@ package com.financial.news.controller;
 import com.financial.news.common.Result;
 import com.financial.news.dto.request.*;
 import com.financial.news.dto.response.LoginResponse;
+import com.financial.news.security.JwtTokenProvider;
 import com.financial.news.service.AuthService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
@@ -23,22 +25,28 @@ import org.springframework.web.bind.annotation.*;
 public class AuthController {
 
     private final AuthService authService;
+    private final JwtTokenProvider jwtTokenProvider;
 
-    @Operation(summary = "用户登录", description = "支持用户名或邮箱登录，返回 JWT Token")
+    @Operation(summary = "用户登录", description = "支持用户名或邮箱登录，JWT 写入 HttpOnly Cookie")
     @PostMapping("/login")
-    public Result<LoginResponse> login(@Valid @RequestBody LoginRequest request) {
-        return Result.ok(authService.login(request));
+    public Result<LoginResponse> login(@Valid @RequestBody LoginRequest request, HttpServletResponse response) {
+        LoginResponse loginResponse = authService.login(request);
+        jwtTokenProvider.setJwtCookie(response, loginResponse.getAccessToken());
+        return Result.ok(loginResponse);
     }
 
     @Operation(summary = "用户注册")
     @PostMapping("/register")
-    public Result<LoginResponse> register(@Valid @RequestBody RegisterRequest request) {
-        return Result.ok(authService.register(request));
+    public Result<LoginResponse> register(@Valid @RequestBody RegisterRequest request, HttpServletResponse response) {
+        LoginResponse loginResponse = authService.register(request);
+        jwtTokenProvider.setJwtCookie(response, loginResponse.getAccessToken());
+        return Result.ok(loginResponse);
     }
 
-    @Operation(summary = "用户登出")
+    @Operation(summary = "用户登出", description = "清除 JWT Cookie")
     @PostMapping("/logout")
-    public Result<Void> logout() {
+    public Result<Void> logout(HttpServletResponse response) {
+        jwtTokenProvider.clearJwtCookie(response);
         return Result.okMsg("登出成功");
     }
 

@@ -5,6 +5,7 @@ import com.financial.news.common.Result;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
+import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
@@ -23,7 +24,7 @@ import java.util.Collections;
 
 /**
  * JWT 认证过滤器
- * <p>从请求头中提取 Bearer Token 并进行验证</p>
+ * <p>从请求 Cookie 中提取 Token 并进行验证（兼容 Authorization 头）</p>
  *
  * @author financial-news
  * @since 1.0.0
@@ -89,9 +90,21 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     }
 
     /**
-     * 从请求头提取 Bearer Token
+     * 提取 JWT Token
+     * <p>优先从 Cookie 中提取，同时兼容旧的 Authorization 头方式</p>
      */
     private String extractToken(HttpServletRequest request) {
+        // 优先从 HttpOnly Cookie 提取
+        Cookie[] cookies = request.getCookies();
+        if (cookies != null) {
+            for (Cookie cookie : cookies) {
+                if (jwtTokenProvider.getCookieName().equals(cookie.getName())
+                        && StringUtils.hasText(cookie.getValue())) {
+                    return cookie.getValue();
+                }
+            }
+        }
+        // 兼容：仍支持 Authorization: Bearer <token> 方式
         String bearerToken = request.getHeader(AUTHORIZATION_HEADER);
         if (StringUtils.hasText(bearerToken) && bearerToken.startsWith(BEARER_PREFIX)) {
             return bearerToken.substring(BEARER_PREFIX.length());

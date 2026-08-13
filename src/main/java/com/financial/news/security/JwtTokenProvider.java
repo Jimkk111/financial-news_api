@@ -2,12 +2,16 @@ package com.financial.news.security;
 
 import io.jsonwebtoken.*;
 import io.jsonwebtoken.security.Keys;
+import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.ResponseCookie;
 import org.springframework.stereotype.Component;
 
 import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.Date;
 
 /**
@@ -25,16 +29,25 @@ public class JwtTokenProvider {
     private final long expirationMs;
     private final String issuer;
     private final String audience;
+    private final String cookieName;
+    private final boolean cookieSecure;
+    private final String cookieSameSite;
 
     public JwtTokenProvider(
             @Value("${jwt.secret}") String secret,
             @Value("${jwt.expiration}") long expirationMs,
             @Value("${jwt.issuer}") String issuer,
-            @Value("${jwt.audience}") String audience) {
+            @Value("${jwt.audience}") String audience,
+            @Value("${jwt.cookie.name:jwt_token}") String cookieName,
+            @Value("${jwt.cookie.secure:false}") boolean cookieSecure,
+            @Value("${jwt.cookie.same-site:Lax}") String cookieSameSite) {
         this.secretKey = Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
         this.expirationMs = expirationMs;
         this.issuer = issuer;
         this.audience = audience;
+        this.cookieName = cookieName;
+        this.cookieSecure = cookieSecure;
+        this.cookieSameSite = cookieSameSite;
     }
 
     /**
@@ -96,6 +109,44 @@ public class JwtTokenProvider {
             log.warn("JWT Token 验证失败: {}", e.getMessage());
             return false;
         }
+    }
+
+    // ==================== Cookie 管理 ====================
+
+    /**
+     * 获取 JWT Cookie 名称
+     */
+    public String getCookieName() {
+        return cookieName;
+    }
+
+    /**
+     * 将 JWT 写入 HttpOnly Cookie
+     * <p>Max-Age 与 Token 有效期一致（7天）</p>
+     */
+    public void setJwtCookie(HttpServletResponse response, String token) {
+        ResponseCookie cookie = ResponseCookie.from(cookieName, token)
+                .httpOnly(true)
+                .secure(cookieSecure)
+                .sameSite(cookieSameSite)
+                .path("/")
+                .maxAge(Duration.ofMillis(expirationMs))
+                .build();
+        response.addHeader(HttpHeaders.SET_COOKIE, cookie.toString());
+    }
+
+    /**
+     * 清除 JWT Cookie（登出时调用）
+     */
+    public void clearJwtCookie(HttpServletResponse response) {
+        ResponseCookie cookie = ResponseCookie.from(cookieName, "")
+                .httpOnly(true)
+                .secure(cookieSecure)
+                .sameSite(cookieSameSite)
+                .path("/")
+                .maxAge(Duration.ZERO)
+                .build();
+        response.addHeader(HttpHeaders.SET_COOKIE, cookie.toString());
     }
 
     /**

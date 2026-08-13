@@ -31,11 +31,10 @@ public class SwaggerConfig {
                 .addSecurityItem(new SecurityRequirement().addList("BearerAuth"))
                 .components(new io.swagger.v3.oas.models.Components()
                         .addSecuritySchemes("BearerAuth", new SecurityScheme()
-                                .name("BearerAuth")
-                                .type(SecurityScheme.Type.HTTP)
-                                .scheme("bearer")
-                                .bearerFormat("JWT")
-                                .description("输入 JWT Token：Bearer {token}")
+                                .name("jwt_token")
+                                .type(SecurityScheme.Type.APIKEY)
+                                .in(SecurityScheme.In.COOKIE)
+                                .description("JWT 通过 HttpOnly Cookie（jwt_token）传输，登录后自动携带")
                         ));
     }
 }
