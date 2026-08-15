@@ -1,12 +1,16 @@
 package com.financial.news.entity;
 
 import com.baomidou.mybatisplus.annotation.*;
+import com.fasterxml.jackson.annotation.JsonInclude;
+import com.financial.news.model.content.Block;
+import com.financial.news.utils.BlockListTypeHandler;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 /**
  * 新闻实体
@@ -18,7 +22,7 @@ import java.time.LocalDateTime;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-@TableName("news")
+@TableName(value = "news", autoResultMap = true)
 public class News {
 
     @TableId(type = IdType.AUTO)
@@ -30,8 +34,13 @@ public class News {
     /** 摘要 */
     private String summary;
 
-    /** 正文内容 */
+    /** 正文内容（旧 HTML，过渡期保留） */
     private String content;
+
+    /** 正文内容（块级 JSON，新契约；列表查询排除列后为 null 不输出） */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    @TableField(typeHandler = BlockListTypeHandler.class)
+    private List<Block> contentJson;
 
     /** 发布时间 */
     private LocalDateTime publishTime;

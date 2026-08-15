@@ -1,6 +1,5 @@
 package com.financial.news.service;
 
-import cn.hutool.core.bean.BeanUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
@@ -10,8 +9,10 @@ import com.financial.news.common.Result;
 import com.financial.news.dto.response.NewsDetailVO;
 import com.financial.news.entity.*;
 import com.financial.news.mapper.*;
+import com.financial.news.utils.ContentCodec;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.BeanUtils;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -59,6 +60,8 @@ public class NewsService extends ServiceImpl<NewsMapper, News> {
         } else {
             wrapper.orderByDesc(News::getPublishTime);
         }
+        // 列表不携带块级 JSON 正文，减小响应体积
+        wrapper.select(News.class, info -> !info.getColumn().equals("content_json"));
 
         return newsMapper.selectPage(pageParam, wrapper);
     }
@@ -70,7 +73,12 @@ public class NewsService extends ServiceImpl<NewsMapper, News> {
         News news = getNewsFromCache(CACHE_NEWS_DETAIL + id, id);
 
         NewsDetailVO vo = new NewsDetailVO();
-        BeanUtil.copyProperties(news, vo);
+        // Spring BeanUtils 浅拷贝（Hutool BeanUtil 深拷贝会把 Block 接口降级为 Map 导致转换异常）
+        BeanUtils.copyProperties(news, vo);
+        // 存量新闻未迁移时，响应中实时从 HTML 转换（不落库，由迁移任务负责）
+        if (vo.getContentJson() == null && vo.getContent() != null) {
+            vo.setContentJson(ContentCodec.fromHtml(vo.getContent()));
+        }
         vo.setTags(getNewsTags(id));
         if (news.getCategoryId() != null) {
             vo.setCategory(categoryMapper.selectById(news.getCategoryId()));
@@ -175,6 +183,8 @@ public class NewsService extends ServiceImpl<NewsMapper, News> {
         LambdaQueryWrapper<News> wrapper = new LambdaQueryWrapper<News>()
                 .and(w -> w.like(News::getTitle, keyword).or().like(News::getSummary, keyword))
                 .orderByDesc(News::getPublishTime);
+        // 搜索列表不携带块级 JSON 正文，减小响应体积
+        wrapper.select(News.class, info -> !info.getColumn().equals("content_json"));
         return newsMapper.selectPage(pageParam, wrapper);
     }
 

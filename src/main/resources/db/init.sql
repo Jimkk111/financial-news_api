@@ -63,7 +63,8 @@ CREATE TABLE `news` (
     `id` INT NOT NULL AUTO_INCREMENT COMMENT '主键',
     `title` VARCHAR(200) NOT NULL COMMENT '标题',
     `summary` TEXT DEFAULT NULL COMMENT '摘要',
-    `content` TEXT DEFAULT NULL COMMENT '正文内容',
+    `content` TEXT DEFAULT NULL COMMENT '正文内容（旧 HTML，过渡期保留）',
+    `content_json` LONGTEXT DEFAULT NULL COMMENT '正文内容（块级 JSON 字符串，新契约）',
     `publish_time` DATETIME DEFAULT NULL COMMENT '发布时间',
     `source` VARCHAR(100) DEFAULT NULL COMMENT '来源',
     `views` INT NOT NULL DEFAULT 0 COMMENT '浏览量',
@@ -108,7 +109,8 @@ CREATE TABLE `drafts` (
     `id` VARCHAR(50) NOT NULL COMMENT '草稿ID，格式 draft-xxxxxxxx',
     `user_id` INT NOT NULL COMMENT '用户ID',
     `title` VARCHAR(200) DEFAULT NULL COMMENT '标题',
-    `content` TEXT DEFAULT NULL COMMENT '内容',
+    `content` TEXT DEFAULT NULL COMMENT '内容（旧 HTML，过渡期保留）',
+    `content_json` LONGTEXT DEFAULT NULL COMMENT '内容（块级 JSON 字符串，新契约）',
     `cover_image` VARCHAR(500) DEFAULT NULL COMMENT '封面图URL',
     `category_id` INT DEFAULT NULL COMMENT '分类ID',
     `status` VARCHAR(20) NOT NULL DEFAULT 'draft' COMMENT '状态：draft/published',
@@ -120,6 +122,23 @@ CREATE TABLE `drafts` (
     CONSTRAINT `fk_drafts_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE,
     CONSTRAINT `fk_drafts_category` FOREIGN KEY (`category_id`) REFERENCES `categories` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='草稿表';
+
+-- ----------------------------
+-- 草稿-标签关联表
+-- ----------------------------
+DROP TABLE IF EXISTS `draft_tags`;
+CREATE TABLE `draft_tags` (
+    `id` INT NOT NULL AUTO_INCREMENT COMMENT '主键',
+    `draft_id` VARCHAR(50) NOT NULL COMMENT '草稿ID',
+    `tag_id` INT NOT NULL COMMENT '标签ID',
+    `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_draft_tag` (`draft_id`, `tag_id`),
+    KEY `idx_draft_id` (`draft_id`),
+    KEY `idx_tag_id` (`tag_id`),
+    CONSTRAINT `fk_draft_tags_draft` FOREIGN KEY (`draft_id`) REFERENCES `drafts` (`id`) ON DELETE CASCADE,
+    CONSTRAINT `fk_draft_tags_tag` FOREIGN KEY (`tag_id`) REFERENCES `tags` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='草稿-标签关联表';
 
 -- ----------------------------
 -- 收藏表
