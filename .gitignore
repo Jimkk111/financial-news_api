@@ -79,9 +79,13 @@ data/
 *.env.local
 *.env.*.local
 .env.*
+!*.env.example
 application-local.yml
+application-dev.yml
+application-prod.yml
 application-*.yml.bak
 !application.yml
+!application.yml.example
 
 # ==================== Misc ====================
 *.tmp

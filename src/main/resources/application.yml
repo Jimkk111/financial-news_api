@@ -1,18 +1,18 @@
 server:
-  port: 3000
+  port: ${SERVER_PORT:3000}
 
 spring:
   profiles:
-    active: dev
+    active: ${SPRING_PROFILES_ACTIVE:dev}
   application:
     name: financial-news-api
 
   # 数据源配置
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
-    url: jdbc:mysql://localhost:3306/cls_financial_news_database?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
-    username: root
-    password: 123456
+    url: ${DB_URL:jdbc:mysql://localhost:3306/cls_financial_news_database?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true}
+    username: ${DB_USERNAME:root}
+    password: ${DB_PASSWORD:}
     hikari:
       minimum-idle: 5
       maximum-pool-size: 20
@@ -23,10 +23,10 @@ spring:
   # Redis 配置
   data:
     redis:
-      host: localhost
-      port: 6379
-      password:
-      database: 0
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      database: ${REDIS_DATABASE:0}
       lettuce:
         pool:
           max-active: 8
@@ -37,10 +37,10 @@ spring:
 
   # 邮件配置
   mail:
-    host: smtp.example.com
-    port: 587
-    username: your_email@example.com
-    password: your_smtp_password
+    host: ${MAIL_HOST:smtp.example.com}
+    port: ${MAIL_PORT:587}
+    username: ${MAIL_USERNAME:your_email@example.com}
+    password: ${MAIL_PASSWORD:your_smtp_password}
     properties:
       mail:
         smtp:
@@ -75,11 +75,11 @@ mybatis-plus:
       logic-not-delete-value: "NULL"
   configuration:
     map-underscore-to-camel-case: true
-    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+    log-impl: ${MYBATIS_LOG_IMPL:org.apache.ibatis.logging.stdout.StdOutImpl}
 
 # Knife4j (Swagger) 配置
 knife4j:
-  enable: true
+  enable: ${KNIFE4J_ENABLE:true}
   setting:
     language: zh_cn
     enable-swagger-models: true
@@ -95,25 +95,25 @@ springdoc:
       paths-to-match: /api/**
       packages-to-scan: com.financial.news.controller
 
-# JWT 配置
+# JWT 配置（密钥必须通过环境变量注入）
 jwt:
-  secret: your_jwt_secret_key_here_change_in_production
-  expiration: 604800000  # 7天，单位毫秒
-  issuer: cls-financial-news
-  audience: cls-financial-news-users
+  secret: ${JWT_SECRET}
+  expiration: ${JWT_EXPIRATION:604800000}  # 7天，单位毫秒
+  issuer: ${JWT_ISSUER:cls-financial-news}
+  audience: ${JWT_AUDIENCE:cls-financial-news-users}
   # JWT Cookie 配置
   cookie:
     name: jwt_token
-    secure: false       # 仅 HTTPS 传输；生产环境必须改为 true
-    same-site: Lax      # 跨站请求限制：Lax / Strict / None
+    secure: ${JWT_COOKIE_SECURE:false}       # 生产环境必须为 true
+    same-site: Lax
 
 # AI 服务配置（OpenAI 兼容接口）
 ai:
-  api-key: your_ai_api_key
-  api-base-url: https://api.openai.com/v1
-  model: gpt-3.5-turbo
-  max-tokens: 2000
-  temperature: 0.7
+  api-key: ${AI_API_KEY:your_ai_api_key}
+  api-base-url: ${AI_BASE_URL:https://api.openai.com/v1}
+  model: ${AI_MODEL:gpt-3.5-turbo}
+  max-tokens: ${AI_MAX_TOKENS:2000}
+  temperature: ${AI_TEMPERATURE:0.7}
 
 # 文件上传配置
 upload:
@@ -127,7 +127,7 @@ upload:
 # 日志配置
 logging:
   level:
-    com.financial.news: debug
+    com.financial.news: ${LOG_LEVEL:debug}
     org.springframework.security: info
   file:
     path: ./logs
