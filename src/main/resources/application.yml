@@ -115,6 +115,19 @@ ai:
   max-tokens: ${AI_MAX_TOKENS:2000}
   temperature: ${AI_TEMPERATURE:0.7}
 
+# 爬虫 Agent 配置（独立 LLM 实例，用于内容采集工作流）
+crawler:
+  agent:
+    api-key: ${CRAWLER_AI_API_KEY:${AI_API_KEY:}}
+    api-base-url: ${CRAWLER_AI_BASE_URL:${AI_BASE_URL:https://api.openai.com/v1}}
+    model: ${CRAWLER_AI_MODEL:gpt-4o-mini}
+    temperature: 0.3
+    max-tokens: 4096
+    # 单次爬取最大文章数
+    max-articles-per-run: 20
+    # HTTP 请求超时（秒）
+    http-timeout: 30
+
 # 文件上传配置
 upload:
   storage-type: local

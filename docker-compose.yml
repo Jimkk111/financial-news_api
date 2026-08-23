@@ -1,0 +1,151 @@
+# ==================== 财经新闻 API - Docker Compose ====================
+# 使用方式：
+#   1. 复制 .env.docker 为 .env 并修改配置
+#   2. 启动：docker compose up -d
+#   3. 查看日志：docker compose logs -f app
+#   4. 停止：docker compose down
+#   5. 清理（含数据）：docker compose down -v
+
+services:
+  # ==================== MySQL 数据库 ====================
+  mysql:
+    image: mysql:8.0
+    container_name: financial-news-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-cls_financial_news_database}
+      MYSQL_USER: ${MYSQL_USER:-financial}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+    ports:
+      - "127.0.0.1:3306:3306"   # 仅本地访问，不对外暴露
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./src/main/resources/db/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --default-authentication-plugin=mysql_native_password
+      - --max-connections=200
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - backend
+
+  # ==================== Redis 缓存 ====================
+  redis:
+    image: redis:7-alpine
+    container_name: financial-news-redis
+    restart: unless-stopped
+    command: >
+      redis-server
+      --requirepass ${REDIS_PASSWORD}
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+      --appendonly yes
+    ports:
+      - "127.0.0.1:6379:6379"   # 仅本地访问
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - backend
+
+  # ==================== Spring Boot 应用 ====================
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: financial-news-app
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      # Spring Boot 环境变量注入
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-prod}
+      SERVER_PORT: "3000"
+      # 数据库
+      DB_URL: jdbc:mysql://mysql:3306/${MYSQL_DATABASE:-cls_financial_news_database}?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+      DB_USERNAME: ${DB_USERNAME:-${MYSQL_USER:-financial}}
+      DB_PASSWORD: ${DB_PASSWORD:-${MYSQL_PASSWORD}}
+      # Redis
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      REDIS_DATABASE: "${REDIS_DATABASE:-0}"
+      # 邮件
+      MAIL_HOST: ${MAIL_HOST}
+      MAIL_PORT: "${MAIL_PORT:-587}"
+      MAIL_USERNAME: ${MAIL_USERNAME}
+      MAIL_PASSWORD: ${MAIL_PASSWORD}
+      # JWT
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRATION: "${JWT_EXPIRATION:-604800000}"
+      JWT_ISSUER: ${JWT_ISSUER:-cls-financial-news}
+      JWT_AUDIENCE: ${JWT_AUDIENCE:-cls-financial-news-users}
+      JWT_COOKIE_SECURE: "${JWT_COOKIE_SECURE:-true}"
+      # AI
+      AI_API_KEY: ${AI_API_KEY}
+      AI_BASE_URL: ${AI_BASE_URL:-https://api.openai.com/v1}
+      AI_MODEL: ${AI_MODEL:-gpt-3.5-turbo}
+      AI_MAX_TOKENS: "${AI_MAX_TOKENS:-2000}"
+      AI_TEMPERATURE: "${AI_TEMPERATURE:-0.7}"
+      # 爬虫 Agent（可选，不设置则复用 AI 配置）
+      CRAWLER_AI_API_KEY: ${CRAWLER_AI_API_KEY:-}
+      CRAWLER_AI_BASE_URL: ${CRAWLER_AI_BASE_URL:-}
+      CRAWLER_AI_MODEL: ${CRAWLER_AI_MODEL:-}
+      # 日志 & 调试
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      KNIFE4J_ENABLE: "${KNIFE4J_ENABLE:-false}"
+    volumes:
+      - uploads-data:/app/uploads
+      - logs-data:/app/logs
+    expose:
+      - "3000"   # 仅内网通信，不对外暴露
+    networks:
+      - backend
+
+  # ==================== Nginx 反向代理 ====================
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: financial-news-nginx
+    restart: unless-stopped
+    depends_on:
+      - app
+    ports:
+      - "80:80"
+      # - "443:443"   # HTTPS：取消注释以启用（需先配置 SSL 证书）
+    volumes:
+      - ./deploy/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./deploy/certs:/etc/nginx/certs:ro
+      - uploads-data:/app/uploads:ro
+      # - logs-data:/var/log/nginx   # 如需持久化 nginx 日志
+    networks:
+      - backend
+
+# ==================== 网络 ====================
+networks:
+  backend:
+    driver: bridge
+
+# ==================== 数据卷 ====================
+volumes:
+  mysql-data:
+    driver: local
+  redis-data:
+    driver: local
+  uploads-data:
+    driver: local
+  logs-data:
+    driver: local

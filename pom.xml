@@ -7,7 +7,7 @@
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
-        <version>3.2.0</version>
+        <version>3.4.4</version>
         <relativePath/>
     </parent>
 
@@ -19,11 +19,12 @@
     <description>财经新闻 API 服务 - Spring Boot 重构版</description>
 
     <properties>
-        <java.version>17</java.version>
+        <java.version>23</java.version>
         <mybatis-plus.version>3.5.5</mybatis-plus.version>
         <knife4j.version>4.5.0</knife4j.version>
         <jjwt.version>0.12.3</jjwt.version>
         <hutool.version>5.8.24</hutool.version>
+        <langchain4j.version>0.35.0</langchain4j.version>
     </properties>
 
     <dependencies>
@@ -104,11 +105,25 @@
             <version>${hutool.version}</version>
         </dependency>
 
-        <!-- jsoup HTML 解析（存量 HTML 正文转块级 JSON 迁移用） -->
+        <!-- jsoup HTML 解析（存量 HTML 正文转块级 JSON 迁移用 + 爬虫网页解析） -->
         <dependency>
             <groupId>org.jsoup</groupId>
             <artifactId>jsoup</artifactId>
             <version>1.17.2</version>
+        </dependency>
+
+        <!-- LangChain4j Core -->
+        <dependency>
+            <groupId>dev.langchain4j</groupId>
+            <artifactId>langchain4j</artifactId>
+            <version>${langchain4j.version}</version>
+        </dependency>
+
+        <!-- LangChain4j OpenAI 兼容（支持 DeepSeek 等 OpenAI-compatible API） -->
+        <dependency>
+            <groupId>dev.langchain4j</groupId>
+            <artifactId>langchain4j-open-ai</artifactId>
+            <version>${langchain4j.version}</version>
         </dependency>
 
         <!-- Lombok -->
