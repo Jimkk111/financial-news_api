@@ -80,6 +80,7 @@ data/
 *.env.*.local
 .env.*
 !*.env.example
+!.env.docker
 application-local.yml
 application-dev.yml
 application-prod.yml
