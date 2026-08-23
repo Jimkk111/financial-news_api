@@ -6,6 +6,7 @@ import com.financial.news.service.crawler.CrawlerAgent;
 import com.financial.news.service.crawler.CrawlerTools;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -18,6 +19,7 @@ import org.springframework.context.annotation.Configuration;
  */
 @Slf4j
 @Configuration
+@ConditionalOnProperty(name = "crawler.agent.api-key", matchIfMissing = false)
 public class CrawlerAgentConfig {
 
     @Value("${crawler.agent.api-key:}")
