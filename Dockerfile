@@ -1,15 +1,27 @@
 # ==================== Stage 1: Build ====================
 FROM eclipse-temurin:23-jdk AS builder
 
+# Install Maven
+ARG MAVEN_VERSION=3.9.9
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends curl && \
+    curl -fsSL https://archive.apache.org/dist/maven/maven-3/${MAVEN_VERSION}/binaries/apache-maven-${MAVEN_VERSION}-bin.tar.gz | \
+    tar -xz -C /opt && \
+    ln -s /opt/apache-maven-${MAVEN_VERSION}/bin/mvn /usr/bin/mvn && \
+    apt-get purge -y curl && apt-get autoremove -y && \
+    rm -rf /var/lib/apt/lists/*
+
+ENV MAVEN_OPTS="-Xmx512m"
+
 WORKDIR /build
 
-# Copy Maven wrapper if exists, otherwise use system mvn
+# 先复制 pom.xml 利用 Docker 层缓存（依赖不变时不重新下载）
 COPY pom.xml .
-COPY src/ ./src/
+RUN mvn dependency:go-offline -B -q 2>/dev/null || true
 
-# Build application JAR (skip tests in Docker)
-RUN --mount=type=cache,target=/root/.m2/repository \
-    mvn clean package -DskipTests -q
+# 复制源码并构建
+COPY src/ ./src/
+RUN mvn clean package -DskipTests -B -q
 
 # ==================== Stage 2: Runtime ====================
 FROM eclipse-temurin:23-jre
