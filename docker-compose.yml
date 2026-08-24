@@ -111,28 +111,26 @@ services:
     volumes:
       - uploads-data:/app/uploads
       - logs-data:/app/logs
-    expose:
-      - "3000"   # 仅内网通信，不对外暴露
+    ports:
+      - "127.0.0.1:3000:3000"   # 前端 Nginx 反代到 127.0.0.1:3000
     networks:
       - backend
 
-  # ==================== Nginx 反向代理 ====================
-  nginx:
-    image: nginx:1.27-alpine
-    container_name: financial-news-nginx
-    restart: unless-stopped
-    depends_on:
-      - app
-    ports:
-      - "80:80"
-      # - "443:443"   # HTTPS：取消注释以启用（需先配置 SSL 证书）
-    volumes:
-      - ./deploy/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./deploy/certs:/etc/nginx/certs:ro
-      - uploads-data:/app/uploads:ro
-      # - logs-data:/var/log/nginx   # 如需持久化 nginx 日志
-    networks:
-      - backend
+  # ==================== Nginx 反向代理（前端已占用 80 端口时无需启用） ====================
+  # nginx:
+  #   image: nginx:1.27-alpine
+  #   container_name: financial-news-nginx
+  #   restart: unless-stopped
+  #   depends_on:
+  #     - app
+  #   ports:
+  #     - "8080:80"
+  #   volumes:
+  #     - ./deploy/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+  #     - ./deploy/certs:/etc/nginx/certs:ro
+  #     - uploads-data:/app/uploads:ro
+  #   networks:
+  #     - backend
 
 # ==================== 网络 ====================
 networks:
