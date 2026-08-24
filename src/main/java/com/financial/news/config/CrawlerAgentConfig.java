@@ -45,6 +45,12 @@ public class CrawlerAgentConfig {
      */
     @Bean("crawlerChatModel")
     public OpenAiChatModel crawlerChatModel() {
+        if (apiKey == null || apiKey.isBlank()) {
+            throw new org.springframework.beans.factory.BeanCreationException(
+                    "crawlerChatModel: crawler.agent.api-key 不能为空，" +
+                    "请在 .env 中配置 AI_API_KEY 或 CRAWLER_AI_API_KEY");
+        }
+        log.info("初始化爬虫 LLM — 模型: {}, 基础URL: {}", model, apiBaseUrl);
         return OpenAiChatModel.builder()
                 .apiKey(apiKey)
                 .baseUrl(apiBaseUrl)
