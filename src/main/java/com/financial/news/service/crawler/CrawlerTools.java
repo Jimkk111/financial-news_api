@@ -643,6 +643,158 @@ public class CrawlerTools {
         }
     }
 
+    // ======================== 华尔街见闻专用工具 ========================
+
+    /** 华尔街见闻 API 基础地址 */
+    private static final String WSCN_API_BASE = "https://api-one.wallstcn.com/apiv1/content";
+
+    /**
+     * 工具：获取华尔街见闻新闻列表（自动去重）
+     * <p>华尔街见闻的 global-channel API 存在严重的文章重复问题（同一篇文章会被重复返回多次）。
+     * 此工具自动按文章 ID 去重，返回干净的不重复列表。</p>
+     *
+     * @param channel 频道名称，如 "global-channel"（见闻首页）、"a-stock-channel"（A股）
+     * @param limit   返回文章数量上限
+     * @return 去重后的 JSON 数组，每项含 id、title、time、url、content_short 字段
+     */
+    @Tool("获取华尔街见闻新闻列表（自动去重）。channel是频道名(如global-channel/a-stock-channel)，limit是数量。返回JSON数组，每项含id/title/time/url/content_short。华尔街见闻API有严重的重复问题，此工具已自动按ID去重。")
+    public String fetchWallstreetArticles(String channel, int limit) {
+        log.info("Agent 调用 fetchWallstreetArticles: channel={}, limit={}", channel, limit);
+        try {
+            String apiUrl = WSCN_API_BASE + "/articles?channel=" + channel + "&limit=" + Math.max(limit * 3, 30);
+            String body = doFetchJson(apiUrl, "https://wallstreetcn.com/");
+            if (body == null || body.isBlank()) {
+                return "ERROR: API 请求失败";
+            }
+
+            var root = MAPPER.readTree(body);
+            var items = root.path("data").path("items");
+            if (!items.isArray() || items.isEmpty()) {
+                return "ERROR: API 返回空列表";
+            }
+
+            // 按文章 ID 去重，保留顺序
+            List<Map<String, Object>> articles = new ArrayList<>();
+            Set<Long> seenIds = new HashSet<>();
+            for (var item : items) {
+                long id = item.path("id").asLong(0);
+                if (id == 0 || seenIds.contains(id)) continue;
+                seenIds.add(id);
+
+                String title = item.path("title").asText("");
+                if (title.isBlank() || title.length() < 4) continue;
+
+                long displayTime = item.path("display_time").asLong(0);
+                String displayTimeStr = displayTime > 0
+                        ? LocalDateTime.ofEpochSecond(displayTime, 0, java.time.ZoneOffset.ofHours(8))
+                            .format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))
+                        : "";
+
+                Map<String, Object> article = new LinkedHashMap<>();
+                article.put("id", id);
+                article.put("title", title);
+                article.put("time", displayTimeStr);
+                article.put("url", item.path("uri").asText(""));
+                article.put("content_short", item.path("content_short").asText(""));
+                articles.add(article);
+
+                if (articles.size() >= limit) break;
+            }
+
+            String result = MAPPER.writeValueAsString(articles);
+            log.info("fetchWallstreetArticles 去重后返回 {} 篇文章（原始 {} 条）", articles.size(), items.size());
+            return result;
+        } catch (Exception e) {
+            log.error("fetchWallstreetArticles 异常: {}", e.getMessage());
+            return "ERROR: " + e.getMessage();
+        }
+    }
+
+    /**
+     * 工具：获取华尔街见闻文章详情（含完整正文）
+     * <p>华尔街见闻的文章详情 API 必须传 extract=0 才能返回 HTML 正文内容。</p>
+     *
+     * @param articleId 文章 ID（从 fetchWallstreetArticles 返回的 id 字段获取）
+     * @return JSON 格式的文章详情，含 title、time、htmlContent、imageUrl、categories 字段
+     */
+    @Tool("获取华尔街见闻文章详情。articleId是文章ID(从fetchWallstreetArticles返回)。返回JSON含title/time/htmlContent/imageUrl/categories。")
+    public String fetchWallstreetArticleDetail(String articleId) {
+        log.info("Agent 调用 fetchWallstreetArticleDetail: articleId={}", articleId);
+        try {
+            // 必须加 extract=0 才能返回 HTML 正文
+            String apiUrl = WSCN_API_BASE + "/articles/" + articleId + "?extract=0";
+            String body = doFetchJson(apiUrl, "https://wallstreetcn.com/");
+            if (body == null || body.isBlank()) {
+                return "ERROR: API 请求失败";
+            }
+
+            var root = MAPPER.readTree(body);
+            var data = root.path("data");
+            if (data.isMissingNode() || data.isNull()) {
+                return "ERROR: API 返回数据为空";
+            }
+
+            String title = data.path("title").asText("");
+            String content = data.path("content").asText("");
+            long displayTime = data.path("display_time").asLong(0);
+            String timeStr = displayTime > 0
+                    ? LocalDateTime.ofEpochSecond(displayTime, 0, java.time.ZoneOffset.ofHours(8))
+                        .format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))
+                    : "";
+
+            // 封面图
+            String imageUrl = data.path("image").path("uri").asText("");
+
+            // 分类
+            List<String> categories = new ArrayList<>();
+            var cats = data.path("categories");
+            if (cats.isArray()) {
+                for (var cat : cats) {
+                    String name = cat.path("name").asText("");
+                    if (!name.isBlank()) categories.add(name);
+                }
+            }
+
+            // 转换 HTML 为 contentJson
+            List<Block> blocks = ContentCodec.fromHtml(content);
+            blocks = ContentCodec.normalize(blocks);
+            String contentJson = MAPPER.writeValueAsString(blocks);
+
+            // 缓存到 ARTICLE_CACHE，供 saveNews 使用
+            Map<String, Object> cached = new LinkedHashMap<>();
+            cached.put("title", title);
+            cached.put("time", timeStr);
+            cached.put("imageUrl", imageUrl);
+            cached.put("htmlContent", content);
+            cached.put("contentJson", contentJson);
+            String plainText = Jsoup.parse(content).text();
+            if (plainText.length() > 5000) plainText = plainText.substring(0, 5000);
+            cached.put("plainText", plainText);
+            // 用文章页面 URL 作为缓存 key
+            String articleUrl = data.path("uri").asText(
+                    "https://wallstreetcn.com/articles/" + articleId);
+            ARTICLE_CACHE.put(articleUrl, cached);
+
+            // 返回摘要
+            Map<String, Object> summary = new LinkedHashMap<>();
+            summary.put("id", Long.parseLong(articleId));
+            summary.put("title", title);
+            summary.put("time", timeStr);
+            summary.put("imageUrl", imageUrl);
+            summary.put("url", articleUrl);
+            summary.put("categories", categories);
+            summary.put("blocks", blocks.size());
+            summary.put("content_preview", plainText.substring(0, Math.min(300, plainText.length())));
+
+            String result = MAPPER.writeValueAsString(summary);
+            log.info("fetchWallstreetArticleDetail 成功: id={}, 标题={}, 块数={}", articleId, title, blocks.size());
+            return result;
+        } catch (Exception e) {
+            log.error("fetchWallstreetArticleDetail 异常: {}", e.getMessage());
+            return "ERROR: " + e.getMessage();
+        }
+    }
+
     // ======================== 私有辅助方法 ========================
 
     /**
@@ -799,4 +951,37 @@ public class CrawlerTools {
      * 数据源配置记录
      */
     record SourceConfig(String name, String homeUrl, String listUrl) {}
+
+    /**
+     * 私有方法：执行 JSON API 请求并返回响应体
+     */
+    private String doFetchJson(String apiUrl, String referer) {
+        try {
+            HttpClient client = HttpClient.newBuilder()
+                    .connectTimeout(Duration.ofSeconds(httpTimeout))
+                    .followRedirects(HttpClient.Redirect.NORMAL)
+                    .build();
+
+            HttpRequest.Builder reqBuilder = HttpRequest.newBuilder()
+                    .uri(URI.create(apiUrl))
+                    .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
+                    .header("Accept", "application/json, text/plain, */*")
+                    .header("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
+                    .GET();
+
+            if (referer != null && !referer.isBlank()) {
+                reqBuilder.header("Referer", referer);
+            }
+
+            HttpResponse<String> response = client.send(reqBuilder.build(), HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            if (response.statusCode() != 200) {
+                log.error("doFetchJson HTTP {} for {}", response.statusCode(), apiUrl);
+                return null;
+            }
+            return response.body();
+        } catch (Exception e) {
+            log.error("doFetchJson 异常: {}", e.getMessage());
+            return null;
+        }
+    }
 }

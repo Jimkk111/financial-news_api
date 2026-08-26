@@ -83,7 +83,7 @@ data/
 !.env.docker
 application-local.yml
 application-dev.yml
-application-prod.yml
+# application-prod.yml   ← 已纳入版本管理
 application-*.yml.bak
 !application.yml
 !application.yml.example
