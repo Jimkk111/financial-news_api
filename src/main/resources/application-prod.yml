@@ -1,0 +1,52 @@
+# ==================== 生产环境配置 ====================
+
+spring:
+  datasource:
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+
+  data:
+    redis:
+      host: ${REDIS_HOST}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD}
+      database: ${REDIS_DATABASE:0}
+
+  mail:
+    host: ${MAIL_HOST}
+    port: ${MAIL_PORT:587}
+    username: ${MAIL_USERNAME}
+    password: ${MAIL_PASSWORD}
+
+# MyBatis-Plus 生产环境关闭 SQL 日志
+mybatis-plus:
+  configuration:
+    log-impl: org.apache.ibatis.logging.nologging.NoLoggingImpl
+
+# Knife4j 生产环境关闭
+knife4j:
+  enable: false
+
+# JWT
+jwt:
+  secret: ${JWT_SECRET}
+  expiration: ${JWT_EXPIRATION:604800000}
+  issuer: ${JWT_ISSUER:cls-financial-news}
+  audience: ${JWT_AUDIENCE:cls-financial-news-users}
+  cookie:
+    secure: ${JWT_COOKIE_SECURE:false}
+
+# AI 服务
+ai:
+  api-key: ${AI_API_KEY}
+  api-base-url: ${AI_BASE_URL:https://api.openai.com/v1}
+  model: ${AI_MODEL:gpt-3.5-turbo}
+  max-tokens: ${AI_MAX_TOKENS:2000}
+  temperature: ${AI_TEMPERATURE:0.7}
+
+# 日志级别
+logging:
+  level:
+    com.financial.news: info
+    org.springframework.security: warn

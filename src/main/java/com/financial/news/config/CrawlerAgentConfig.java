@@ -2,8 +2,7 @@ package com.financial.news.config;
 
 import dev.langchain4j.model.openai.OpenAiChatModel;
 import dev.langchain4j.service.AiServices;
-import com.financial.news.service.crawler.CrawlerAgent;
-import com.financial.news.service.crawler.CrawlerTools;
+import com.financial.news.service.crawler.*;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -64,12 +63,47 @@ public class CrawlerAgentConfig {
     }
 
     /**
-     * 爬虫 Agent（LangChain4j AiServices 代理）
+     * PlannerAgent — 纯 LLM 推理，无工具
      */
     @Bean
-    public CrawlerAgent crawlerAgent(OpenAiChatModel crawlerChatModel, CrawlerTools crawlerTools) {
-        log.info("初始化爬虫 Agent — 模型: {}, 基础URL: {}", model, apiBaseUrl);
-        return AiServices.builder(CrawlerAgent.class)
+    public PlannerAgent plannerAgent(OpenAiChatModel crawlerChatModel) {
+        log.info("初始化 PlannerAgent — 爬取规划Agent");
+        return AiServices.builder(PlannerAgent.class)
+                .chatLanguageModel(crawlerChatModel)
+                .build();
+    }
+
+    /**
+     * ScraperAgent — 页面抓取 Agent
+     */
+    @Bean
+    public ScraperAgent scraperAgent(OpenAiChatModel crawlerChatModel, CrawlerTools crawlerTools) {
+        log.info("初始化 ScraperAgent — 页面抓取Agent");
+        return AiServices.builder(ScraperAgent.class)
+                .chatLanguageModel(crawlerChatModel)
+                .tools(crawlerTools)
+                .build();
+    }
+
+    /**
+     * ProcessorAgent — 内容处理 Agent
+     */
+    @Bean
+    public ProcessorAgent processorAgent(OpenAiChatModel crawlerChatModel, CrawlerTools crawlerTools) {
+        log.info("初始化 ProcessorAgent — 内容处理Agent");
+        return AiServices.builder(ProcessorAgent.class)
+                .chatLanguageModel(crawlerChatModel)
+                .tools(crawlerTools)
+                .build();
+    }
+
+    /**
+     * WriterAgent — 入库 Agent
+     */
+    @Bean
+    public WriterAgent writerAgent(OpenAiChatModel crawlerChatModel, CrawlerTools crawlerTools) {
+        log.info("初始化 WriterAgent — 入库Agent");
+        return AiServices.builder(WriterAgent.class)
                 .chatLanguageModel(crawlerChatModel)
                 .tools(crawlerTools)
                 .build();
