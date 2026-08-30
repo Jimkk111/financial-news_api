@@ -101,14 +101,10 @@ public class AiService extends ServiceImpl<AiSessionMapper, AiSession> {
     @Transactional
     public Map<String, Object> chat(Integer userId, AiChatRequest request) {
         AiSession session = resolveSession(userId, request.getSessionId());
-        // 保存用户消息
+        // 保存本轮用户消息。请求中的其余消息仅作为 AI 上下文，避免历史消息重复入库。
         List<AiChatRequest.ChatMessage> msgs = request.getMessages();
-        List<AiChatRequest.ChatMessage> sendMsgs = msgs.size() > 20
-                ? msgs.subList(msgs.size() - 20, msgs.size()) : msgs;
-
-        for (AiChatRequest.ChatMessage m : sendMsgs) {
-            aiMessageMapper.insert(AiMessage.builder().sessionId(session.getId()).role(m.getRole()).content(m.getContent()).build());
-        }
+        List<AiChatRequest.ChatMessage> sendMsgs = limitContextMessages(msgs);
+        saveCurrentUserMessage(session, sendMsgs);
 
         // 调用 AI API
         String aiResponse = callAiApi(sendMsgs);
@@ -136,14 +132,10 @@ public class AiService extends ServiceImpl<AiSessionMapper, AiSession> {
         CompletableFuture.runAsync(() -> {
             try {
                 AiSession session = resolveSession(userId, request.getSessionId());
+                // 保存本轮用户消息。请求中的其余消息仅作为 AI 上下文，避免历史消息重复入库。
                 List<AiChatRequest.ChatMessage> msgs = request.getMessages();
-                List<AiChatRequest.ChatMessage> sendMsgs = msgs.size() > 20
-                        ? msgs.subList(msgs.size() - 20, msgs.size()) : msgs;
-
-                // 保存用户消息
-                for (AiChatRequest.ChatMessage m : sendMsgs) {
-                    aiMessageMapper.insert(AiMessage.builder().sessionId(session.getId()).role(m.getRole()).content(m.getContent()).build());
-                }
+                List<AiChatRequest.ChatMessage> sendMsgs = limitContextMessages(msgs);
+                saveCurrentUserMessage(session, sendMsgs);
 
                 // 调用 AI API (流式)
                 StringBuilder fullResponse = new StringBuilder();
@@ -169,6 +161,24 @@ public class AiService extends ServiceImpl<AiSessionMapper, AiSession> {
         return emitter;
     }
 
+    private List<AiChatRequest.ChatMessage> limitContextMessages(List<AiChatRequest.ChatMessage> messages) {
+        return messages.size() > 20 ? messages.subList(messages.size() - 20, messages.size()) : messages;
+    }
+
+    private void saveCurrentUserMessage(AiSession session, List<AiChatRequest.ChatMessage> messages) {
+        if (messages.isEmpty()) {
+            return;
+        }
+        AiChatRequest.ChatMessage currentMessage = messages.get(messages.size() - 1);
+        if ("user".equalsIgnoreCase(currentMessage.getRole())) {
+            aiMessageMapper.insert(AiMessage.builder()
+                    .sessionId(session.getId())
+                    .role(currentMessage.getRole())
+                    .content(currentMessage.getContent())
+                    .build());
+        }
+    }
+
     private AiSession resolveSession(Integer userId, String sessionId) {
         if (sessionId != null && !sessionId.isBlank()) {
             AiSession s = aiSessionMapper.selectOne(new LambdaQueryWrapper<AiSession>().eq(AiSession::getSessionId, sessionId));
@@ -187,7 +197,7 @@ public class AiService extends ServiceImpl<AiSessionMapper, AiSession> {
         return s;
     }
 
-    private String callAiApi(List<AiChatRequest.ChatMessage> messages) {
+    protected String callAiApi(List<AiChatRequest.ChatMessage> messages) {
         try {
             List<Map<String, String>> msgs = messages.stream()
                     .map(m -> Map.of("role", m.getRole(), "content", m.getContent())).toList();
