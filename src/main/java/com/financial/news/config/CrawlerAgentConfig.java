@@ -5,7 +5,7 @@ import dev.langchain4j.service.AiServices;
 import com.financial.news.service.crawler.*;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -18,7 +18,7 @@ import org.springframework.context.annotation.Configuration;
  */
 @Slf4j
 @Configuration
-@ConditionalOnProperty(name = "crawler.agent.api-key", matchIfMissing = false)
+@ConditionalOnExpression("'${crawler.agent.enabled:false}' == 'true' && '${crawler.agent.api-key:}' != ''")
 public class CrawlerAgentConfig {
 
     @Value("${crawler.agent.api-key:}")
@@ -36,7 +36,7 @@ public class CrawlerAgentConfig {
     @Value("${crawler.agent.max-tokens:4096}")
     private int maxTokens;
 
-    @Value("${crawler.agent.http-timeout:30}")
+    @Value("${crawler.agent.http-timeout:120}")
     private int httpTimeout;
 
     /**
@@ -57,8 +57,8 @@ public class CrawlerAgentConfig {
                 .temperature(temperature)
                 .maxTokens(maxTokens)
                 .timeout(java.time.Duration.ofSeconds(httpTimeout))
-                .logRequests(true)
-                .logResponses(true)
+                .logRequests(false)
+                .logResponses(false)
                 .build();
     }
 

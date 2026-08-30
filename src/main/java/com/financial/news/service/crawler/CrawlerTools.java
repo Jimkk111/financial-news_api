@@ -59,7 +59,7 @@ public class CrawlerTools {
     @Value("${crawler.agent.max-articles-per-run:20}")
     private int maxArticlesPerRun;
 
-    @Value("${crawler.agent.http-timeout:30}")
+    @Value("${crawler.agent.http-timeout:120}")
     private int httpTimeout;
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
@@ -86,8 +86,16 @@ public class CrawlerTools {
     /** 文章详情缓存：URL -> 解析后的文章详情 JSON。避免 LLM 传递 htmlContent/contentJson 导致截断 */
     private static final Map<String, Map<String, Object>> ARTICLE_CACHE = new java.util.concurrent.ConcurrentHashMap<>();
 
-    /** 缓存最大条目数，超过时清理最早的一半 */
     private static final int MAX_CACHE_SIZE = 500;
+    private static final int MAX_RESPONSE_BYTES = 5 * 1024 * 1024;
+    private static final Set<String> ALLOWED_HOSTS = Set.of(
+            "finance.eastmoney.com", "eastmoney.com", "finance.sina.com.cn",
+            "sina.com.cn", "news.10jqka.com.cn", "10jqka.com.cn",
+            "wallstreetcn.com", "api-one.wallstcn.com");
+    private final HttpClient httpClient = HttpClient.newBuilder()
+            .connectTimeout(Duration.ofSeconds(30))
+            .followRedirects(HttpClient.Redirect.NORMAL)
+            .build();
 
     // ======================== 工具方法 ========================
 
@@ -102,25 +110,25 @@ public class CrawlerTools {
     public String fetchPage(String url) {
         log.info("Agent 调用 fetchPage: {}", url);
         try {
-            HttpClient client = HttpClient.newBuilder()
-                    .connectTimeout(Duration.ofSeconds(httpTimeout))
-                    .followRedirects(HttpClient.Redirect.NORMAL)
-                    .build();
-
+            URI target = validateUrl(url);
             HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(url))
+                    .uri(target)
+                    .timeout(Duration.ofSeconds(httpTimeout))
                     .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
                     .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
                     .header("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
                     .GET()
                     .build();
 
-            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            HttpResponse<byte[]> response = httpClient.send(request, HttpResponse.BodyHandlers.ofByteArray());
             if (response.statusCode() != 200) {
                 return "ERROR: HTTP " + response.statusCode() + " - 页面获取失败";
             }
+            if (response.body().length > MAX_RESPONSE_BYTES) {
+                return "ERROR: 页面响应超过大小限制";
+            }
 
-            String html = response.body();
+            String html = new String(response.body(), StandardCharsets.UTF_8);
             // 缓存完整 HTML，后续工具通过 URL 取回
             HTML_CACHE.put(url, html);
             // 缓存超限时清理最早的一半条目
@@ -179,14 +187,12 @@ public class CrawlerTools {
                 if (href.isBlank()) href = link.attr("href");
                 if (href.isBlank()) continue;
 
-                // 补全相对链接
-                if (href.startsWith("/") && !href.startsWith("//")) {
-                    href = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) + href : baseUrl + href;
-                }
+                URI resolved = resolveUrl(href, baseUrl != null && !baseUrl.isBlank() ? baseUrl : url);
+                if (resolved == null) continue;
+                href = canonicalizeUrl(resolved);
 
                 // 去重
-                if (seenUrls.contains(href)) continue;
-                seenUrls.add(href);
+                if (!seenUrls.add(href)) continue;
 
                 // 提取标题
                 String title = "";
@@ -345,7 +351,8 @@ public class CrawlerTools {
      */
     @Tool("将HTML正文清洗并转换为块级JSON。过滤广告和噪声内容，转换为项目内容契约格式。返回JSON数组，每个元素有type字段标识块类型。")
     public String htmlToContentJson(String htmlContent) {
-        log.info("Agent 调用 htmlToContentJson: 长度={}", htmlContent.length());
+        log.info("Agent 调用 htmlToContentJson: 长度={}", htmlContent == null ? 0 : htmlContent.length());
+        if (htmlContent == null || htmlContent.isBlank()) return "[]";
         try {
             List<Block> blocks = ContentCodec.fromHtml(htmlContent);
             // 过滤可能的噪声块
@@ -374,6 +381,7 @@ public class CrawlerTools {
      * @return 保存结果：成功返回 "saved:新闻ID"，重复返回 "duplicate:URL"
      */
     @Tool("保存新闻到数据库。url是文章页面URL(优先从缓存取htmlContent和contentJson)。title是标题，source是来源，categoryName是分类名称，tagNamesStr是逗号分隔的标签名称。")
+    @org.springframework.transaction.annotation.Transactional
     public String saveNews(String title, String url, String summary, String publishTimeStr,
                            String source, String categoryName, String tagNamesStr) {
         log.info("Agent 调用 saveNews: 标题={}, 来源={}, 分类={}", title, source, categoryName);
@@ -386,6 +394,7 @@ public class CrawlerTools {
             Map<String, Object> cached = null;
             if (url != null && !url.isBlank()) {
                 cached = ARTICLE_CACHE.get(url);
+                if (cached == null) cached = ARTICLE_CACHE.get(url.replace("https://wallstreetcn.com/articles/", ""));
             }
             if (cached != null) {
                 htmlContent = (String) cached.get("htmlContent");
@@ -406,8 +415,14 @@ public class CrawlerTools {
             if (contentJson == null && htmlContent != null && !htmlContent.isBlank()) {
                 contentJson = ContentCodec.normalize(ContentCodec.fromHtml(htmlContent));
             }
-
-            // 2. 处理分类
+            if (title == null || title.isBlank()) return "error:标题不能为空";
+            if (htmlContent == null || htmlContent.isBlank() || contentJson == null || contentJson.isEmpty()) {
+                return "error:正文为空，拒绝入库";
+            }
+            title = title.trim();
+            source = source == null ? null : source.trim();
+            categoryName = categoryName == null ? null : categoryName.trim();
+            url = canonicalizeUrlValue(url);
             Integer categoryId = null;
             if (categoryName != null && !categoryName.isBlank()) {
                 categoryId = findOrCreateCategory(categoryName.trim());
@@ -635,9 +650,13 @@ public class CrawlerTools {
         log.info("Agent 调用 checkUrlsExist");
         try {
             List<String> urls = MAPPER.readValue(urlsJson, new TypeReference<List<String>>() {});
-            // 简单统计：查询已有的新闻数量
-            long count = newsMapper.selectCount(null);
-            return String.format("{\"totalUrls\":%d,\"existingNewsCount\":%d}", urls.size(), count);
+            int existing = 0;
+            for (String url : urls) {
+                String canonical = canonicalizeUrlValue(url);
+                if (canonical == null) continue;
+                existing += newsMapper.selectCount(new LambdaQueryWrapper<News>().eq(News::getTitle, canonical)) > 0 ? 1 : 0;
+            }
+            return String.format("{\"totalUrls\":%d,\"existingUrls\":%d,\"missingUrls\":%d}", urls.size(), existing, urls.size() - existing);
         } catch (Exception e) {
             return "error:" + e.getMessage();
         }
@@ -661,7 +680,8 @@ public class CrawlerTools {
     public String fetchWallstreetArticles(String channel, int limit) {
         log.info("Agent 调用 fetchWallstreetArticles: channel={}, limit={}", channel, limit);
         try {
-            String apiUrl = WSCN_API_BASE + "/articles?channel=" + channel + "&limit=" + Math.max(limit * 3, 30);
+            int safeLimit = Math.min(Math.max(limit, 1), maxArticlesPerRun);
+            String apiUrl = WSCN_API_BASE + "/articles?channel=" + java.net.URLEncoder.encode(channel == null ? "global-channel" : channel, StandardCharsets.UTF_8) + "&limit=" + Math.max(safeLimit * 3, 30);
             String body = doFetchJson(apiUrl, "https://wallstreetcn.com/");
             if (body == null || body.isBlank()) {
                 return "ERROR: API 请求失败";
@@ -721,8 +741,13 @@ public class CrawlerTools {
     public String fetchWallstreetArticleDetail(String articleId) {
         log.info("Agent 调用 fetchWallstreetArticleDetail: articleId={}", articleId);
         try {
-            // 必须加 extract=0 才能返回 HTML 正文
-            String apiUrl = WSCN_API_BASE + "/articles/" + articleId + "?extract=0";
+            long articleNumericId;
+            try {
+                articleNumericId = Long.parseLong(articleId);
+            } catch (NumberFormatException e) {
+                return "ERROR: articleId 必须为数字";
+            }
+            String apiUrl = WSCN_API_BASE + "/articles/" + articleNumericId + "?extract=0";
             String body = doFetchJson(apiUrl, "https://wallstreetcn.com/");
             if (body == null || body.isBlank()) {
                 return "ERROR: API 请求失败";
@@ -770,14 +795,13 @@ public class CrawlerTools {
             String plainText = Jsoup.parse(content).text();
             if (plainText.length() > 5000) plainText = plainText.substring(0, 5000);
             cached.put("plainText", plainText);
-            // 用文章页面 URL 作为缓存 key
-            String articleUrl = data.path("uri").asText(
-                    "https://wallstreetcn.com/articles/" + articleId);
+            String articleUrl = canonicalizeUrl(URI.create("https://wallstreetcn.com/articles/" + articleId));
             ARTICLE_CACHE.put(articleUrl, cached);
+            ARTICLE_CACHE.put(articleId, cached);
 
             // 返回摘要
             Map<String, Object> summary = new LinkedHashMap<>();
-            summary.put("id", Long.parseLong(articleId));
+            summary.put("id", articleNumericId);
             summary.put("title", title);
             summary.put("time", timeStr);
             summary.put("imageUrl", imageUrl);
@@ -797,9 +821,54 @@ public class CrawlerTools {
 
     // ======================== 私有辅助方法 ========================
 
-    /**
-     * 查找或创建分类
-     */
+    private URI validateUrl(String value) {
+        if (value == null || value.isBlank()) throw new IllegalArgumentException("URL 不能为空");
+        URI uri = URI.create(value.trim());
+        String scheme = uri.getScheme();
+        String host = uri.getHost();
+        if (!("http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme)) || host == null) {
+            throw new IllegalArgumentException("仅支持 HTTP/HTTPS URL");
+        }
+        String lowerHost = host.toLowerCase(Locale.ROOT);
+        boolean allowed = ALLOWED_HOSTS.stream().anyMatch(h -> lowerHost.equals(h) || lowerHost.endsWith("." + h));
+        if (!allowed) throw new IllegalArgumentException("不允许访问该数据源地址");
+        try {
+            java.net.InetAddress address = java.net.InetAddress.getByName(host);
+            if (address.isAnyLocalAddress() || address.isLoopbackAddress() || address.isLinkLocalAddress()
+                    || address.isSiteLocalAddress()) throw new IllegalArgumentException("禁止访问内网地址");
+        } catch (java.net.UnknownHostException e) {
+            throw new IllegalArgumentException("无法解析目标地址", e);
+        }
+        return uri;
+    }
+
+    private URI resolveUrl(String href, String baseUrl) {
+        try {
+            URI base = validateUrl(baseUrl);
+            URI resolved = base.resolve(href.trim());
+            return validateUrl(resolved.toString());
+        } catch (Exception e) {
+            log.debug("忽略无效文章 URL: {}", href);
+            return null;
+        }
+    }
+
+    private String canonicalizeUrl(URI uri) {
+        try {
+            return new URI(uri.getScheme().toLowerCase(Locale.ROOT), uri.getUserInfo(),
+                    uri.getHost().toLowerCase(Locale.ROOT), uri.getPort(), uri.getPath(), uri.getQuery(), null).toString();
+        } catch (Exception e) {
+            return uri.toString();
+        }
+    }
+
+    private String canonicalizeUrlValue(String value) {
+        if (value == null || value.isBlank()) return null;
+        try { return canonicalizeUrl(validateUrl(value)); }
+        catch (Exception e) { return value.trim(); }
+    }
+
+
     private Integer findOrCreateCategory(String name) {
         Category existing = categoryMapper.selectOne(
                 new LambdaQueryWrapper<Category>().eq(Category::getName, name));

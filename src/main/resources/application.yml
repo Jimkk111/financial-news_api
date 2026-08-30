@@ -118,6 +118,8 @@ ai:
 # 爬虫 Agent 配置（独立 LLM 实例，用于内容采集工作流）
 crawler:
   agent:
+    # 未显式启用时不创建爬虫 Agent，避免缺少 key 阻断应用启动
+    enabled: ${CRAWLER_AGENT_ENABLED:false}
     api-key: ${CRAWLER_AI_API_KEY:${AI_API_KEY:}}
     api-base-url: ${CRAWLER_AI_BASE_URL:${AI_BASE_URL:https://api.openai.com/v1}}
     model: ${CRAWLER_AI_MODEL:gpt-4o-mini}
@@ -126,7 +128,7 @@ crawler:
     # 单次爬取最大文章数
     max-articles-per-run: 20
     # HTTP 请求超时（秒）
-    http-timeout: 30
+    http-timeout: 120
 
 # 文件上传配置
 upload:

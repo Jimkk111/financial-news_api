@@ -53,13 +53,12 @@ public class CrawlerController {
      */
     @Operation(summary = "执行新闻爬取任务（流式）", description = "通过 SSE 实时返回 Agent 执行进度")
     @PostMapping(value = "/crawl/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public Result<Map<String, Object>> crawlStream(@Valid @RequestBody CrawlerRequest request) {
+    public SseEmitter crawlStream(@Valid @RequestBody CrawlerRequest request) {
         JwtUserDetails user = JwtUserDetails.getCurrentUser();
-        Map<String, Object> result = crawlerAgentService.executeStream(
+        return crawlerAgentService.executeStream(
                 user.getUserId(),
                 request.getInstruction(),
                 request.getSessionId()
         );
-        return Result.ok(result);
     }
 }

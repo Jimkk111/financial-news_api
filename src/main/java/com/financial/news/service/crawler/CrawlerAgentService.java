@@ -1,72 +1,89 @@
 package com.financial.news.service.crawler;
 
+import com.financial.news.common.BusinessException;
+import com.financial.news.common.ErrorCode;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+import java.io.IOException;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 
-/**
- * 爬虫 Agent 服务
- * <p>封装多 Agent 工作流的调用流程，提供统一的爬取入口。</p>
- *
- * <h3>工作流概览</h3>
- * <pre>
- *   用户输入 "帮我爬取东方财富的新闻"
- *          ↓
- *   CrawlerOrchestrator 编排多 Agent 协同工作
- *     ├─ PlannerAgent: 分析指令 → 制定爬取计划
- *     ├─ ScraperAgent: 按计划抓取页面 → 提取文章列表
- *     ├─ ProcessorAgent: 逐篇解析正文 → 结构化内容
- *     └─ WriterAgent: 清洗分类 → 入库保存
- * </pre>
- *
- * @author financial-news
- * @since 1.0.0
- */
+/** 爬虫工作流服务，统一处理同步和 SSE 执行。 */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class CrawlerAgentService {
+    private final ObjectProvider<CrawlerOrchestrator> orchestratorProvider;
 
-    private final CrawlerOrchestrator orchestrator;
-
-    /**
-     * 执行爬取任务（同步）
-     *
-     * @param userId      用户 ID
-     * @param instruction 自然语言爬取指令
-     * @param sessionId   会话 ID（此版本不使用，保留接口兼容）
-     * @return 执行结果，包含 Agent 回复
-     */
     public Map<String, Object> execute(Integer userId, String instruction, String sessionId) {
-        log.info("========== 爬取任务提交 ==========");
-        log.info("userId={}, instruction={}", userId, instruction);
+        WorkflowContext context = run(userId, instruction);
+        return result(context, sessionId);
+    }
 
-        // 执行多 Agent 工作流
-        String agentResponse;
-        try {
-            agentResponse = orchestrator.execute(instruction);
-        } catch (Exception e) {
-            log.error("爬取工作流执行异常", e);
-            agentResponse = "爬取任务执行失败: " + e.getMessage();
+    public SseEmitter executeStream(Integer userId, String instruction, String sessionId) {
+        SseEmitter emitter = new SseEmitter(300_000L);
+        CompletableFuture.runAsync(() -> {
+            try {
+                WorkflowContext context = run(userId, instruction, progress -> send(emitter, progress));
+                sendEvent(emitter, "completed", result(context, sessionId));
+                sendEvent(emitter, "done", "[DONE]");
+                emitter.complete();
+            } catch (Exception e) {
+                log.error("爬虫 SSE 工作流执行失败", e);
+                sendEvent(emitter, "error", Map.of("code", ErrorCode.CRAWLER_EXECUTION_FAILED.getCode(), "message", safeMessage(e)));
+                emitter.completeWithError(e);
+            }
+        });
+        return emitter;
+    }
+
+    private WorkflowContext run(Integer userId, String instruction) {
+        return run(userId, instruction, null);
+    }
+
+    private WorkflowContext run(Integer userId, String instruction, java.util.function.Consumer<WorkflowContext> progress) {
+        CrawlerOrchestrator orchestrator = orchestratorProvider.getIfAvailable();
+        if (orchestrator == null) {
+            throw new BusinessException(ErrorCode.CRAWLER_NOT_CONFIGURED);
         }
+        return orchestrator.execute(userId, instruction, progress);
+    }
 
-        log.info("爬取任务完成: {}", agentResponse);
-
-        // 返回结果（不再保存到 ai_messages，工作流日志由 orchestrator 通过 log 记录）
+    private Map<String, Object> result(WorkflowContext context, String sessionId) {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("role", "assistant");
-        result.put("content", agentResponse);
+        result.put("content", context.getExecutionSummary());
         result.put("sessionId", sessionId);
+        result.put("runId", context.getRunId());
+        result.put("status", context.getStatus().name().toLowerCase());
+        result.put("success", context.getStatus() == WorkflowContext.Status.SUCCEEDED);
+        result.put("statistics", context.statistics());
+        if (!context.getErrors().isEmpty()) result.put("errors", context.getErrors());
         return result;
     }
 
-    /**
-     * 流式执行爬取任务（当前为同步执行后一次性返回）
-     */
-    public Map<String, Object> executeStream(Integer userId, String instruction, String sessionId) {
-        return execute(userId, instruction, sessionId);
+    private void send(SseEmitter emitter, WorkflowContext context) {
+        sendEvent(emitter, "progress", Map.of(
+                "runId", context.getRunId(),
+                "stage", context.getCurrentStage() == null ? "Crawler" : context.getCurrentStage(),
+                "message", context.getExecutionLog().isEmpty() ? "" : context.getExecutionLog().get(context.getExecutionLog().size() - 1),
+                "statistics", context.statistics()));
+    }
+
+    private void sendEvent(SseEmitter emitter, String name, Object data) {
+        try {
+            emitter.send(SseEmitter.event().name(name).data(data));
+        } catch (IOException e) {
+            throw new IllegalStateException("SSE 客户端已断开", e);
+        }
+    }
+
+    private String safeMessage(Exception e) {
+        return e.getMessage() == null || e.getMessage().isBlank() ? "爬虫任务执行失败" : e.getMessage();
     }
 }

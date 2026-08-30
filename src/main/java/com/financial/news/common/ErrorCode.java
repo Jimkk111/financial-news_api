@@ -52,6 +52,11 @@ public enum ErrorCode {
     AI_SERVICE_UNAVAILABLE(503, "AI_SERVICE_UNAVAILABLE", "AI 服务暂不可用"),
     AI_SESSION_NOT_OWNER(403, "AI_SESSION_NOT_OWNER", "无权操作此会话"),
 
+    // ========== 爬虫相关 ==========
+    CRAWLER_NOT_CONFIGURED(503, "CRAWLER_NOT_CONFIGURED", "爬虫服务未配置或未启用"),
+    CRAWLER_EXECUTION_FAILED(502, "CRAWLER_EXECUTION_FAILED", "爬虫任务执行失败"),
+    CRAWLER_SOURCE_NOT_ALLOWED(400, "CRAWLER_SOURCE_NOT_ALLOWED", "数据源地址不受支持"),
+
     // ========== 新闻相关 ==========
     NEWS_NOT_FOUND(404, "NEWS_NOT_FOUND", "新闻不存在");
 
