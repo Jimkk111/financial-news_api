@@ -17,16 +17,22 @@ ENV MAVEN_OPTS="-Xmx512m"
 
 WORKDIR /build
 
+# 配置阿里云 Maven 镜像加速（国内服务器适用，海外服务器可去掉）
+RUN mkdir -p /root/.m2 && \
+    echo '<settings><mirrors><mirror><id>aliyun</id><mirrorOf>central</mirrorOf><url>https://maven.aliyun.com/repository/central</url></mirror></mirrors></settings>' \
+    > /root/.m2/settings.xml
+
 # 先复制 pom.xml 利用 Docker 层缓存（依赖不变时不重新下载）
 COPY pom.xml .
-# 挂载 Maven 本地仓库到 BuildKit 缓存，避免每次重新下载依赖
-RUN --mount=type=cache,target=/root/.m2/repository \
-    mvn dependency:go-offline -B -q 2>/dev/null || true
 
-# 复制源码并构建
+# 复制源码
 COPY src/ ./src/
+
+# 挂载 Maven 本地仓库到 BuildKit 缓存，避免每次重新下载依赖
+# 将 go-offline + package 合并为单个 RUN，确保依赖只下载一次
 RUN --mount=type=cache,target=/root/.m2/repository \
-    mvn clean package -DskipTests -B -q
+    mvn dependency:go-offline -B && \
+    mvn clean package -DskipTests -B
 
 # 提取 Layered JAR 的各层（变化频率从低到高）
 RUN mkdir -p /extracted && \

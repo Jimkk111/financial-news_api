@@ -1,0 +1,42 @@
+# IDE
+.idea/
+.vscode/
+*.iml
+*.iws
+out/
+
+# Build output
+target/
+logs/
+
+# Git
+.git/
+.gitignore
+
+# Docker compose & config
+docker-compose*.yml
+.env*
+!.env.example
+!*.env.docker
+
+# Deploy scripts
+deploy/
+
+# Documentation
+docs/
+*.md
+
+# OS files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Agent plans
+.zcode/
+.agents/
+
+# Uploads (runtime volume)
+uploads/
+
+# Test
+src/test/
