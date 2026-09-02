@@ -3,6 +3,10 @@
 # ==================== Stage 1: Build ====================
 FROM eclipse-temurin:23-jdk AS builder
 
+# 配置阿里云 APT 镜像加速（构建阶段，下载快 10 倍+）
+RUN sed -i 's|http://archive.ubuntu.com|https://mirrors.aliyun.com|g' /etc/apt/sources.list.d/ubuntu.sources 2>/dev/null || \
+    sed -i 's|http://archive.ubuntu.com|https://mirrors.aliyun.com|g' /etc/apt/sources.list 2>/dev/null || true
+
 # Install Maven
 ARG MAVEN_VERSION=3.9.9
 RUN apt-get update && \
@@ -17,7 +21,7 @@ ENV MAVEN_OPTS="-Xmx512m"
 
 WORKDIR /build
 
-# 配置阿里云 Maven 镜像加速（国内服务器适用，海外服务器可去掉）
+# 配置阿里云 Maven 镜像加速
 RUN mkdir -p /root/.m2 && \
     echo '<settings><mirrors><mirror><id>aliyun</id><mirrorOf>central</mirrorOf><url>https://maven.aliyun.com/repository/central</url></mirror></mirrors></settings>' \
     > /root/.m2/settings.xml
@@ -46,9 +50,13 @@ FROM eclipse-temurin:23-jre
 LABEL maintainer="financial-news-api"
 LABEL description="财经新闻 API 服务"
 
-# Install timezone support + curl (healthcheck 用)
+# 配置阿里云 APT 镜像加速（运行时阶段，下载快 10 倍+）
+RUN sed -i 's|http://archive.ubuntu.com|https://mirrors.aliyun.com|g' /etc/apt/sources.list.d/ubuntu.sources 2>/dev/null || \
+    sed -i 's|http://archive.ubuntu.com|https://mirrors.aliyun.com|g' /etc/apt/sources.list 2>/dev/null || true
+
+# Install timezone support
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends tzdata curl && \
+    apt-get install -y --no-install-recommends tzdata && \
     ln -sf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime && \
     echo "Asia/Shanghai" > /etc/timezone && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
