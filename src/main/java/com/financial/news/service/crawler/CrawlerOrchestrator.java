@@ -7,6 +7,7 @@ import com.financial.news.common.BusinessException;
 import com.financial.news.common.ErrorCode;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
@@ -17,6 +18,7 @@ import java.util.function.Consumer;
 /** 协调规划、抓取、处理和写入阶段，并为调用方提供可观察的执行状态。 */
 @Slf4j
 @Component
+@ConditionalOnExpression("'${crawler.agent.enabled:false}' == 'true' && '${crawler.agent.api-key:}' != ''")
 public class CrawlerOrchestrator {
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private final PlannerAgent plannerAgent;
