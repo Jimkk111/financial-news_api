@@ -18,6 +18,7 @@ import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
@@ -39,6 +40,12 @@ public class AuthService extends ServiceImpl<UserMapper, User> {
     private final PasswordEncoder passwordEncoder;
     private final JwtTokenProvider jwtTokenProvider;
     private final JavaMailSender mailSender;
+
+    /**
+     * 发件人邮箱，163 等 SMTP 服务要求与登录账号一致，否则返回 553
+     */
+    @Value("${spring.mail.username}")
+    private String mailFrom;
 
     /**
      * 用户登录（支持用户名或邮箱）
@@ -109,6 +116,7 @@ public class AuthService extends ServiceImpl<UserMapper, User> {
         // 发送邮件
         try {
             SimpleMailMessage message = new SimpleMailMessage();
+            message.setFrom(mailFrom);
             message.setTo(request.getEmail());
             message.setSubject("财经新闻 - 验证码");
             message.setText("您的验证码是：" + code + "，有效期5分钟。");
