@@ -1,21 +1,7 @@
 # syntax=docker/dockerfile:1.7
 
 # ==================== Stage 1: Build ====================
-FROM eclipse-temurin:23-jdk AS builder
-
-# 配置阿里云 APT 镜像加速（构建阶段，下载快 10 倍+）
-RUN sed -i 's|http://archive.ubuntu.com|https://mirrors.aliyun.com|g' /etc/apt/sources.list.d/ubuntu.sources 2>/dev/null || \
-    sed -i 's|http://archive.ubuntu.com|https://mirrors.aliyun.com|g' /etc/apt/sources.list 2>/dev/null || true
-
-# Install Maven
-ARG MAVEN_VERSION=3.9.9
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends curl && \
-    curl -fsSL https://archive.apache.org/dist/maven/maven-3/${MAVEN_VERSION}/binaries/apache-maven-${MAVEN_VERSION}-bin.tar.gz | \
-    tar -xz -C /opt && \
-    ln -s /opt/apache-maven-${MAVEN_VERSION}/bin/mvn /usr/bin/mvn && \
-    apt-get purge -y curl && apt-get autoremove -y && \
-    rm -rf /var/lib/apt/lists/*
+FROM maven:3.9-eclipse-temurin-23 AS builder
 
 ENV MAVEN_OPTS="-Xmx512m"
 
@@ -33,10 +19,10 @@ COPY pom.xml .
 COPY src/ ./src/
 
 # 挂载 Maven 本地仓库到 BuildKit 缓存，避免每次重新下载依赖
-# 将 go-offline + package 合并为单个 RUN，确保依赖只下载一次
+# 不再执行 dependency:go-offline：它每次都会联网核对全部依赖元数据，是构建变慢的主因；
+# package 阶段本身就会解析依赖，配合缓存挂载第二次构建即为纯本地编译
 RUN --mount=type=cache,target=/root/.m2/repository \
-    mvn dependency:go-offline -B && \
-    mvn clean package -DskipTests -B
+    mvn package -DskipTests -B -T 1C
 
 # 提取 Layered JAR 的各层（变化频率从低到高）
 RUN mkdir -p /extracted && \
