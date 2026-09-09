@@ -24,6 +24,8 @@ public class JwtUserDetails {
 
     /**
      * 获取当前登录用户（从 SecurityContext 获取）
+     *
+     * @throws com.financial.news.common.BusinessException 上下文中无登录用户时抛出 401
      */
     public static JwtUserDetails getCurrentUser() {
         Object principal = org.springframework.security.core.context.SecurityContextHolder
@@ -31,6 +33,6 @@ public class JwtUserDetails {
         if (principal instanceof JwtUserDetails) {
             return (JwtUserDetails) principal;
         }
-        return null;
+        throw new com.financial.news.common.BusinessException(com.financial.news.common.ErrorCode.UNAUTHORIZED);
     }
 }
