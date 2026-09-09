@@ -89,6 +89,10 @@ services:
       MAIL_PORT: "${MAIL_PORT:-587}"
       MAIL_USERNAME: ${MAIL_USERNAME}
       MAIL_PASSWORD: ${MAIL_PASSWORD}
+      # 163 等 SMTP 走 465/SSL 时需关闭 STARTTLS（线上 .env 用 MAIL_PORT=465）
+      SPRING_MAIL_PROPERTIES_MAIL_SMTP_SSL_ENABLE: "${MAIL_SMTP_SSL:-true}"
+      SPRING_MAIL_PROPERTIES_MAIL_SMTP_STARTTLS_ENABLE: "${MAIL_SMTP_STARTTLS:-false}"
+      SPRING_MAIL_PROPERTIES_MAIL_SMTP_STARTTLS_REQUIRED: "false"
       # JWT
       JWT_SECRET: ${JWT_SECRET}
       JWT_EXPIRATION: "${JWT_EXPIRATION:-604800000}"
@@ -113,7 +117,8 @@ services:
       - uploads-data:/app/uploads
       - logs-data:/app/logs
     ports:
-      - "127.0.0.1:3000:3000"   # 前端 Nginx 反代到 127.0.0.1:3000
+      # 前端 Nginx 在其他机器时需对外暴露；务必在云安全组把 3000 限制为 Nginx 来源 IP
+      - "${APP_BIND_ADDR:-0.0.0.0}:3000:3000"
     networks:
       - backend
 
