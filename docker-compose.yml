@@ -101,9 +101,11 @@ services:
       AI_MODEL: ${AI_MODEL:-gpt-3.5-turbo}
       AI_MAX_TOKENS: "${AI_MAX_TOKENS:-2000}"
       AI_TEMPERATURE: "${AI_TEMPERATURE:-0.7}"
-      # 爬虫 Agent（可选，不设置 .env 则自动复用上方 AI 配置）
-      # CRAWLER_AI_API_KEY / CRAWLER_AI_BASE_URL / CRAWLER_AI_MODEL
-      # 仅在 .env 中显式设置时生效，未设置时 Spring 自动回退到 AI_* 配置
+      # 爬虫 Agent（默认关闭；开启需 .env 设 CRAWLER_AGENT_ENABLED=true，key 未设时回退 AI_API_KEY）
+      CRAWLER_AGENT_ENABLED: "${CRAWLER_AGENT_ENABLED:-false}"
+      CRAWLER_AI_API_KEY: ${CRAWLER_AI_API_KEY:-}
+      CRAWLER_AI_BASE_URL: ${CRAWLER_AI_BASE_URL:-}
+      CRAWLER_AI_MODEL: ${CRAWLER_AI_MODEL:-}
       # 日志 & 调试
       LOG_LEVEL: ${LOG_LEVEL:-info}
       KNIFE4J_ENABLE: "${KNIFE4J_ENABLE:-false}"
