@@ -48,14 +48,35 @@ public class AiService extends ServiceImpl<AiSessionMapper, AiSession> {
 
     private final HttpClient httpClient = HttpClient.newHttpClient();
 
-    /** 获取用户的 AI 会话列表 */
+    /** SSE 流式推送专用线程池，避免占用公共 ForkJoinPool 和请求线程 */
+    private final java.util.concurrent.ExecutorService sseExecutor =
+            new java.util.concurrent.ThreadPoolExecutor(
+                    2, 8, 60L, java.util.concurrent.TimeUnit.SECONDS,
+                    new java.util.concurrent.LinkedBlockingQueue<>(64),
+                    r -> {
+                        Thread t = new Thread(r, "ai-sse-" + r.hashCode());
+                        t.setDaemon(true);
+                        return t;
+                    },
+                    new java.util.concurrent.ThreadPoolExecutor.CallerRunsPolicy());
+
+    /** 获取用户的 AI 会话列表（批量取各会话最后一条消息，避免 N+1） */
     public List<Map<String, Object>> listSessions(Integer userId) {
         List<AiSession> sessions = aiSessionMapper.selectList(
                 new LambdaQueryWrapper<AiSession>().eq(AiSession::getUserId, userId).orderByDesc(AiSession::getUpdatedAt));
+        if (sessions.isEmpty()) {
+            return List.of();
+        }
+
+        Map<Integer, AiMessage> lastMsgBySession = new HashMap<>();
+        List<Integer> sessionIds = sessions.stream().map(AiSession::getId).toList();
+        for (AiMessage m : aiMessageMapper.selectLastMessages(sessionIds)) {
+            lastMsgBySession.put(m.getSessionId(), m);
+        }
+
         List<Map<String, Object>> result = new ArrayList<>();
         for (AiSession s : sessions) {
-            AiMessage lastMsg = aiMessageMapper.selectOne(
-                    new LambdaQueryWrapper<AiMessage>().eq(AiMessage::getSessionId, s.getId()).orderByDesc(AiMessage::getCreatedAt).last("LIMIT 1"));
+            AiMessage lastMsg = lastMsgBySession.get(s.getId());
             Map<String, Object> map = new LinkedHashMap<>();
             map.put("sessionId", s.getSessionId());
             map.put("title", s.getTitle());
@@ -97,8 +118,11 @@ public class AiService extends ServiceImpl<AiSessionMapper, AiSession> {
         aiSessionMapper.deleteById(session.getId());
     }
 
-    /** AI 对话（非流式） */
-    @Transactional
+    /**
+     * AI 对话（非流式）
+     * <p>AI 远程调用不放在事务内：调用期间不占用数据库连接；
+     * 用户消息先落库，AI 失败时回复不入库并抛 503（前端可重试）</p>
+     */
     public Map<String, Object> chat(Integer userId, AiChatRequest request) {
         AiSession session = resolveSession(userId, request.getSessionId());
         // 保存本轮用户消息。请求中的其余消息仅作为 AI 上下文，避免历史消息重复入库。
@@ -106,18 +130,18 @@ public class AiService extends ServiceImpl<AiSessionMapper, AiSession> {
         List<AiChatRequest.ChatMessage> sendMsgs = limitContextMessages(msgs);
         saveCurrentUserMessage(session, sendMsgs);
 
-        // 调用 AI API
+        // 调用 AI API（事务外）
         String aiResponse = callAiApi(sendMsgs);
+
         aiMessageMapper.insert(AiMessage.builder().sessionId(session.getId()).role("assistant").content(aiResponse).build());
 
         // 首次对话自动生成标题
         if (session.getTitle() == null) {
             session.setTitle(aiResponse.length() > 30 ? aiResponse.substring(0, 30) : aiResponse);
-            aiSessionMapper.updateById(session);
         } else {
             session.setUpdatedAt(java.time.LocalDateTime.now());
-            aiSessionMapper.updateById(session);
         }
+        aiSessionMapper.updateById(session);
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("role", "assistant");
@@ -129,8 +153,7 @@ public class AiService extends ServiceImpl<AiSessionMapper, AiSession> {
     /** AI 对话（流式 SSE） */
     public SseEmitter chatStream(Integer userId, AiChatRequest request) {
         SseEmitter emitter = new SseEmitter(300000L); // 5分钟超时
-        CompletableFuture.runAsync(() -> {
-            try {
+        CompletableFuture.runAsync(() -> {            try {
                 AiSession session = resolveSession(userId, request.getSessionId());
                 // 保存本轮用户消息。请求中的其余消息仅作为 AI 上下文，避免历史消息重复入库。
                 List<AiChatRequest.ChatMessage> msgs = request.getMessages();
@@ -157,7 +180,7 @@ public class AiService extends ServiceImpl<AiSessionMapper, AiSession> {
                 log.error("AI 流式对话异常", e);
                 emitter.completeWithError(e);
             }
-        });
+        }, sseExecutor);
         return emitter;
     }
 
@@ -212,25 +235,45 @@ public class AiService extends ServiceImpl<AiSessionMapper, AiSession> {
                     .uri(URI.create(apiBaseUrl + "/chat/completions"))
                     .header("Content-Type", "application/json")
                     .header("Authorization", "Bearer " + apiKey)
+                    .timeout(java.time.Duration.ofSeconds(60))
                     .POST(HttpRequest.BodyPublishers.ofString(json))
                     .build();
             HttpResponse<String> resp = httpClient.send(req, HttpResponse.BodyHandlers.ofString());
+
+            // 上游非 2xx 时按服务不可用处理，不透出上游错误细节
+            if (resp.statusCode() < 200 || resp.statusCode() >= 300) {
+                log.error("AI API 返回非 2xx: status={}, body={}", resp.statusCode(),
+                        resp.body() != null && resp.body().length() > 500 ? resp.body().substring(0, 500) : resp.body());
+                throw new BusinessException(ErrorCode.AI_SERVICE_UNAVAILABLE);
+            }
+
             Map<String, Object> result = new com.fasterxml.jackson.databind.ObjectMapper().readValue(resp.body(), Map.class);
             List<Map<String, Object>> choices = (List<Map<String, Object>>) result.get("choices");
-            Map<String, Object> choice = choices.get(0);
-            Map<String, String> message = (Map<String, String>) choice.get("message");
-            return message.get("content");
+            if (choices == null || choices.isEmpty()) {
+                log.error("AI API 响应缺少 choices: {}", result.keySet());
+                throw new BusinessException(ErrorCode.AI_SERVICE_UNAVAILABLE);
+            }
+            Map<String, String> message = (Map<String, String>) choices.get(0).get("message");
+            String content = message != null ? message.get("content") : null;
+            if (content == null) {
+                log.error("AI API 响应缺少 message.content");
+                throw new BusinessException(ErrorCode.AI_SERVICE_UNAVAILABLE);
+            }
+            return content;
+        } catch (BusinessException e) {
+            throw e;
         } catch (Exception e) {
             log.error("AI API 调用失败", e);
-            throw new BusinessException(ErrorCode.AI_SERVICE_UNAVAILABLE, "AI 服务调用失败: " + e.getMessage());
+            // 不携带底层异常消息，避免向上游/内部实现细节泄露
+            throw new BusinessException(ErrorCode.AI_SERVICE_UNAVAILABLE);
         }
     }
 
     private void callAiApiStream(List<AiChatRequest.ChatMessage> messages, java.util.function.Consumer<String> chunkConsumer) {
-        // 流式实现简化版：使用非流式结果模拟流式输出
+        // 流式实现简化版：使用非流式结果模拟流式输出，分块发送减少 SSE 次数
         String fullResponse = callAiApi(messages);
-        for (int i = 0; i < fullResponse.length(); i++) {
-            chunkConsumer.accept(String.valueOf(fullResponse.charAt(i)));
+        for (int i = 0; i < fullResponse.length(); i += 5) {
+            chunkConsumer.accept(fullResponse.substring(i, Math.min(i + 5, fullResponse.length())));
             try { Thread.sleep(20); } catch (InterruptedException e) { Thread.currentThread().interrupt(); break; }
         }
     }
