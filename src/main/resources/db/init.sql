@@ -210,6 +210,28 @@ CREATE TABLE `ai_messages` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='AI消息表';
 
 -- ----------------------------
+-- 采集审计表
+-- ----------------------------
+DROP TABLE IF EXISTS `crawl_audit`;
+CREATE TABLE `crawl_audit` (
+    `id` INT NOT NULL AUTO_INCREMENT COMMENT '主键',
+    `run_id` VARCHAR(64) NOT NULL COMMENT '采集批次ID',
+    `source` VARCHAR(50) NOT NULL COMMENT '数据源标识',
+    `article_url` VARCHAR(500) DEFAULT NULL COMMENT '文章URL',
+    `title` VARCHAR(300) DEFAULT NULL COMMENT '文章标题',
+    `status` VARCHAR(32) NOT NULL COMMENT '结果: SAVED/DUP_URL/DUP_TITLE/DUP_CONTENT/REJECTED/FAILED',
+    `reason` VARCHAR(500) DEFAULT NULL COMMENT '说明(拒绝原因/失败原因)',
+    `content_length` INT DEFAULT NULL COMMENT '正文纯文本长度',
+    `publish_time` DATETIME DEFAULT NULL COMMENT '解析出的发布时间',
+    `duration_ms` INT DEFAULT NULL COMMENT '单篇处理耗时(毫秒)',
+    `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '记录时间',
+    PRIMARY KEY (`id`),
+    KEY `idx_run_id` (`run_id`),
+    KEY `idx_source_status` (`source`, `status`),
+    KEY `idx_created_at` (`created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='采集审计表';
+
+-- ----------------------------
 -- 验证码表
 -- ----------------------------
 DROP TABLE IF EXISTS `verification_codes`;
