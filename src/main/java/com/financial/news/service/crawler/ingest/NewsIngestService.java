@@ -212,14 +212,16 @@ public class NewsIngestService {
         audit(runId, connector.sourceKey(), url, title, CrawlAudit.SAVED, "入库ID:" + news.getId(), plainText.length(), publishTime, started);
     }
 
-    /** 最近 N 篇文章的指纹，用于本轮近似去重比对 */
+    /** 最近 N 篇文章的指纹，用于本轮近似去重比对（须为可变列表：新入库的指纹会追加进来） */
     private List<Long> loadRecentFingerprints() {
         return newsMapper.selectList(new LambdaQueryWrapper<News>()
                         .select(News::getId, News::getContentFingerprint)
                         .isNotNull(News::getContentFingerprint)
                         .orderByDesc(News::getId)
                         .last("LIMIT " + recentFingerprintScan))
-                .stream().map(News::getContentFingerprint).toList();
+                .stream()
+                .map(News::getContentFingerprint)
+                .collect(java.util.stream.Collectors.toCollection(ArrayList::new));
     }
 
     /** URL 归一化：小写 host、去 fragment 与常见跟踪参数 */
