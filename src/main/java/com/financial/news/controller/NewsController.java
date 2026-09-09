@@ -6,9 +6,12 @@ import com.financial.news.dto.response.NewsDetailVO;
 import com.financial.news.entity.Category;
 import com.financial.news.entity.News;
 import com.financial.news.service.NewsService;
+import com.financial.news.security.JwtUserDetails;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
+import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -43,9 +46,25 @@ public class NewsController {
 
     @Operation(summary = "增加浏览量")
     @PostMapping("/{id}/views")
-    public Result<Map<String, Object>> incrementViews(@PathVariable Integer id) {
-        int views = newsService.incrementViews(id);
+    public Result<Map<String, Object>> incrementViews(@PathVariable Integer id,
+                                                      HttpServletRequest request) {
+        int views = newsService.incrementViews(id, resolveViewerKey(request));
         return Result.ok(Map.of("id", id, "views", views));
+    }
+
+    /**
+     * 解析访问者标识：登录用户用用户ID，否则退化为客户端 IP
+     */
+    private String resolveViewerKey(HttpServletRequest request) {
+        JwtUserDetails user = JwtUserDetails.getCurrentUserOrNull();
+        if (user != null) {
+            return "u" + user.getUserId();
+        }
+        String xff = request.getHeader("X-Forwarded-For");
+        if (StringUtils.hasText(xff)) {
+            return "ip" + xff.split(",")[0].trim();
+        }
+        return "ip" + request.getRemoteAddr();
     }
 
     @Operation(summary = "获取分类列表")

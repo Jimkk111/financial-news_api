@@ -18,6 +18,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -41,8 +43,18 @@ public class NewsService extends ServiceImpl<NewsMapper, News> {
     private static final String CACHE_NEWS_DETAIL = "cls:news:detail:";
     private static final String CACHE_NEWS_CATEGORIES = "cls:news:categories";
     private static final String CACHE_NEWS_TAGS = "cls:news:tags";
+    private static final String VIEW_DEDUP_KEY = "cls:news:viewed:";
     private static final long DETAIL_TTL = 600;   // 10分钟
     private static final long LIST_TTL = 3600;    // 1小时
+    private static final long VIEW_DEDUP_TTL = 3600; // 同一访问者 1 小时内浏览去重
+
+    /** 缓存延迟双删用的调度器 */
+    private final ScheduledExecutorService cacheEvictScheduler =
+            Executors.newSingleThreadScheduledExecutor(r -> {
+                Thread t = new Thread(r, "news-cache-evict");
+                t.setDaemon(true);
+                return t;
+            });
 
     /**
      * 获取新闻列表（分页）
@@ -109,23 +121,51 @@ public class NewsService extends ServiceImpl<NewsMapper, News> {
     }
 
     /**
-     * 增加浏览量并清除缓存
+     * 增加浏览量（原子更新 + 同一访问者 1 小时内只计 1 次）
+     *
+     * @param viewerKey 访问者标识（用户ID 或 IP）
+     * @return 计数后的最新浏览量
      */
-    @Transactional
-    public int incrementViews(Integer id) {
+    public int incrementViews(Integer id, String viewerKey) {
         News news = newsMapper.selectById(id);
         if (news == null) {
             throw new BusinessException(ErrorCode.NEWS_NOT_FOUND);
         }
-        news.setViews(news.getViews() + 1);
-        newsMapper.updateById(news);
 
+        // Redis 不可用时放行计数，降级为不防刷
+        boolean counted = true;
         try {
-            redisTemplate.delete(CACHE_NEWS_DETAIL + id);
+            Boolean first = redisTemplate.opsForValue().setIfAbsent(
+                    VIEW_DEDUP_KEY + id + ":" + viewerKey, 1, VIEW_DEDUP_TTL, TimeUnit.SECONDS);
+            counted = !Boolean.FALSE.equals(first);
+        } catch (Exception e) {
+            log.warn("Redis 浏览去重失败，降级放行: {}", e.getMessage());
+        }
+        if (!counted) {
+            return news.getViews();
+        }
+
+        newsMapper.incrementViews(id);
+        evictDetailCache(id);
+        return news.getViews() + 1;
+    }
+
+    /**
+     * 清除详情缓存（延迟双删：读写并发下旧值可能在删除后被重新写入，延迟再删一次）
+     */
+    private void evictDetailCache(Integer id) {
+        String key = CACHE_NEWS_DETAIL + id;
+        try {
+            redisTemplate.delete(key);
         } catch (Exception e) {
             log.warn("Redis 删除缓存失败: {}", e.getMessage());
         }
-        return news.getViews();
+        cacheEvictScheduler.schedule(() -> {
+            try {
+                redisTemplate.delete(key);
+            } catch (Exception ignored) {
+            }
+        }, 1, TimeUnit.SECONDS);
     }
 
     /**

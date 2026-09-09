@@ -25,7 +25,11 @@ public class MyBatisPlusConfig implements MetaObjectHandler {
     @Bean
     public MybatisPlusInterceptor mybatisPlusInterceptor() {
         MybatisPlusInterceptor interceptor = new MybatisPlusInterceptor();
-        interceptor.addInnerInterceptor(new PaginationInnerInterceptor(DbType.MYSQL));
+        PaginationInnerInterceptor pagination = new PaginationInnerInterceptor(DbType.MYSQL);
+        // 全局单页上限兜底，防止 pageSize 传入超大值拖垮数据库
+        pagination.setMaxLimit(100L);
+        pagination.setOverflow(true);
+        interceptor.addInnerInterceptor(pagination);
         return interceptor;
     }
 
