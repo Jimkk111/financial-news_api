@@ -41,6 +41,10 @@ public class JwtTokenProvider {
             @Value("${jwt.cookie.name:jwt_token}") String cookieName,
             @Value("${jwt.cookie.secure:false}") boolean cookieSecure,
             @Value("${jwt.cookie.same-site:Lax}") String cookieSameSite) {
+        // HS256 要求密钥 ≥ 256 位；密钥过弱时启动即失败，避免弱密钥带入生产
+        if (secret == null || secret.getBytes(StandardCharsets.UTF_8).length < 32) {
+            throw new IllegalStateException("jwt.secret 未配置或长度不足 32 字节，拒绝启动");
+        }
         this.secretKey = Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
         this.expirationMs = expirationMs;
         this.issuer = issuer;

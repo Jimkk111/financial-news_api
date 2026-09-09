@@ -35,7 +35,7 @@ jwt:
   issuer: ${JWT_ISSUER:cls-financial-news}
   audience: ${JWT_AUDIENCE:cls-financial-news-users}
   cookie:
-    secure: ${JWT_COOKIE_SECURE:false}
+    secure: ${JWT_COOKIE_SECURE:true}
 
 # AI 服务
 ai:
