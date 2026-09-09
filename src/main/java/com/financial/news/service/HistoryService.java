@@ -37,18 +37,10 @@ public class HistoryService extends ServiceImpl<HistoryMapper, History> {
     }
 
     /**
-     * 添加/更新浏览记录
+     * 添加/更新浏览记录（数据库幂等 upsert，并发下不产生重复记录）
      */
-    @Transactional
     public void addHistory(Integer userId, Integer newsId) {
-        History existing = historyMapper.selectOne(new LambdaQueryWrapper<History>()
-                .eq(History::getUserId, userId).eq(History::getNewsId, newsId));
-        if (existing != null) {
-            existing.setViewedAt(LocalDateTime.now());
-            historyMapper.updateById(existing);
-        } else {
-            historyMapper.insert(History.builder().userId(userId).newsId(newsId).build());
-        }
+        historyMapper.upsertHistory(userId, newsId);
     }
 
     /**

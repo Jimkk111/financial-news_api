@@ -13,6 +13,7 @@ import com.financial.news.mapper.FavoriteMapper;
 import com.financial.news.mapper.NewsMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -40,18 +41,18 @@ public class FavoriteService extends ServiceImpl<FavoriteMapper, Favorite> {
     }
 
     /**
-     * 添加收藏
+     * 添加收藏（并发下由 uk_user_news 唯一索引兜底，冲突转为业务错误）
      */
     @Transactional
     public void addFavorite(Integer userId, Integer newsId) {
         if (!newsMapper.exists(new LambdaQueryWrapper<News>().eq(News::getId, newsId))) {
             throw new BusinessException(ErrorCode.NEWS_NOT_FOUND);
         }
-        if (favoriteMapper.exists(new LambdaQueryWrapper<Favorite>()
-                .eq(Favorite::getUserId, userId).eq(Favorite::getNewsId, newsId))) {
+        try {
+            favoriteMapper.insert(Favorite.builder().userId(userId).newsId(newsId).build());
+        } catch (DuplicateKeyException e) {
             throw new BusinessException(ErrorCode.ALREADY_FAVORITE);
         }
-        favoriteMapper.insert(Favorite.builder().userId(userId).newsId(newsId).build());
     }
 
     /**

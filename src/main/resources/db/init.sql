@@ -167,7 +167,7 @@ CREATE TABLE `history` (
     `news_id` INT NOT NULL COMMENT '新闻ID',
     `viewed_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '浏览时间',
     PRIMARY KEY (`id`),
-    KEY `idx_user_id` (`user_id`),
+    UNIQUE KEY `uk_user_news` (`user_id`, `news_id`),
     KEY `idx_viewed_at` (`viewed_at`),
     CONSTRAINT `fk_history_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE,
     CONSTRAINT `fk_history_news` FOREIGN KEY (`news_id`) REFERENCES `news` (`id`) ON DELETE CASCADE
