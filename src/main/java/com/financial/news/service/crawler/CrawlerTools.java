@@ -438,6 +438,7 @@ public class CrawlerTools {
                     .contentJson(contentJson)
                     .publishTime(publishTime)
                     .source(source)
+                    .url(canonicalizeUrlValue(url))
                     .views(0)
                     .hasImage(imageUrl != null && !imageUrl.isBlank())
                     .imageUrl(imageUrl)
@@ -654,7 +655,7 @@ public class CrawlerTools {
             for (String url : urls) {
                 String canonical = canonicalizeUrlValue(url);
                 if (canonical == null) continue;
-                existing += newsMapper.selectCount(new LambdaQueryWrapper<News>().eq(News::getTitle, canonical)) > 0 ? 1 : 0;
+                existing += newsMapper.selectCount(new LambdaQueryWrapper<News>().eq(News::getUrl, canonical)) > 0 ? 1 : 0;
             }
             return String.format("{\"totalUrls\":%d,\"existingUrls\":%d,\"missingUrls\":%d}", urls.size(), existing, urls.size() - existing);
         } catch (Exception e) {

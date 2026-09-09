@@ -48,6 +48,12 @@ public class News {
     /** 来源 */
     private String source;
 
+    /** 文章来源URL */
+    private String url;
+
+    /** 正文simhash指纹（近似去重） */
+    private Long contentFingerprint;
+
     /** 浏览量 */
     private Integer views;
 

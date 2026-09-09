@@ -4,6 +4,7 @@ import com.financial.news.common.Result;
 import com.financial.news.dto.request.CrawlerRequest;
 import com.financial.news.security.JwtUserDetails;
 import com.financial.news.service.crawler.CrawlerAgentService;
+import com.financial.news.service.crawler.ingest.NewsIngestService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -30,6 +31,44 @@ import java.util.Map;
 public class CrawlerController {
 
     private final CrawlerAgentService crawlerAgentService;
+    private final NewsIngestService newsIngestService;
+
+    /**
+     * 执行确定性采集流水线（无 LLM 编排）
+     */
+    @Operation(summary = "确定性采集", description = "按数据源直接抓取最新文章：三层去重 + 质量门禁 + 审计入库，单篇失败不影响整体")
+    @PostMapping("/ingest")
+    public Result<Map<String, Object>> ingest(@RequestBody(required = false) IngestRequest request) {
+        JwtUserDetails.getCurrentUser();
+        String source = request != null ? request.getSource() : null;
+        Integer limit = request != null && request.getLimit() != null ? request.getLimit() : 20;
+        NewsIngestService.IngestReport report = newsIngestService.ingest(source, limit);
+        return Result.ok(report.toMap());
+    }
+
+    /** 采集请求参数 */
+    public static class IngestRequest {
+        /** 数据源标识：wallstreetcn / sina / eastmoney，空为全部 */
+        private String source;
+        /** 每源文章数上限（≤50） */
+        private Integer limit;
+
+        public String getSource() {
+            return source;
+        }
+
+        public void setSource(String source) {
+            this.source = source;
+        }
+
+        public Integer getLimit() {
+            return limit;
+        }
+
+        public void setLimit(Integer limit) {
+            this.limit = limit;
+        }
+    }
 
     /**
      * 执行爬取任务（同步）

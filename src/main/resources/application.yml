@@ -77,6 +77,28 @@ mybatis-plus:
     map-underscore-to-camel-case: true
     log-impl: ${MYBATIS_LOG_IMPL:org.apache.ibatis.logging.stdout.StdOutImpl}
 
+# 确定性采集流水线（无 LLM 编排）
+crawler:
+  ingest:
+    max-articles-per-source: 20
+    min-content-length: 200        # 正文纯文本最短字数（质量门禁）
+    max-link-density: 0.6          # 正文链接密度上限（防导航/聚合页）
+    rate-limit-interval-ms: 1500   # 同一 host 两次请求最小间隔
+    near-dup-threshold: 6          # simhash 海明距离阈值，≤ 视为近似重复
+    recent-fingerprint-scan: 500   # 近似去重比对的最近文章数
+    cron-enabled-limit: 20         # 定时采集每源篇数上限
+    cron: "-"                      # 定时采集 cron，默认关闭；如每30分钟: "0 */30 * * * *"
+    sources:
+      wallstreetcn:
+        enabled: true
+        category: 国际财经
+      sina:
+        enabled: true
+        category: 财经
+      eastmoney:
+        enabled: true
+        category: 股票
+
 # Knife4j (Swagger) 配置
 knife4j:
   enable: ${KNIFE4J_ENABLE:true}
