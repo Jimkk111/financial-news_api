@@ -87,7 +87,7 @@ crawler:
     near-dup-threshold: 6          # simhash 海明距离阈值，≤ 视为近似重复
     recent-fingerprint-scan: 500   # 近似去重比对的最近文章数
     cron-enabled-limit: 20         # 定时采集每源篇数上限
-    cron: "-"                      # 定时采集 cron，默认关闭；如每30分钟: "0 */30 * * * *"
+    cron: ${CRAWLER_INGEST_CRON:--}  # 定时采集 cron，默认 "-" 关闭；如每30分钟: "0 */30 * * * *"
     sources:
       wallstreetcn:
         enabled: true

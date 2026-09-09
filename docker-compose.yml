@@ -110,6 +110,8 @@ services:
       CRAWLER_AI_API_KEY: ${CRAWLER_AI_API_KEY:-}
       CRAWLER_AI_BASE_URL: ${CRAWLER_AI_BASE_URL:-}
       CRAWLER_AI_MODEL: ${CRAWLER_AI_MODEL:-}
+      # 定时采集（默认关闭；如 .env 设 CRAWLER_INGEST_CRON="0 */30 * * * *" 为每30分钟）
+      CRAWLER_INGEST_CRON: "${CRAWLER_INGEST_CRON:--}"
       # 日志 & 调试
       LOG_LEVEL: ${LOG_LEVEL:-info}
       KNIFE4J_ENABLE: "${KNIFE4J_ENABLE:-false}"
