@@ -1,5 +1,6 @@
 package com.financial.news.service;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.financial.news.common.BusinessException;
 import com.financial.news.common.ErrorCode;
 import com.financial.news.dto.request.AiChatRequest;
@@ -15,11 +16,14 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.InputStreamReader;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 
@@ -265,8 +269,89 @@ public class AiService {
         }
     }
 
+    /**
+     * 调用 AI 流式接口（stream:true，OpenAI 兼容 SSE 协议），逐 token 回调。
+     * <p>上游返回 "data: {json}" 行序列（delta.content 为增量文本），[DONE] 结束；
+     * 超时只约束首包（响应头），长回复的持续生成不会被掐断。</p>
+     */
+    protected void streamAiApi(List<AiChatRequest.ChatMessage> messages, java.util.function.Consumer<String> tokenConsumer) {
+        try {
+            List<Map<String, String>> msgs = messages.stream()
+                    .map(m -> Map.of("role", m.getRole(), "content", m.getContent())).toList();
+            Map<String, Object> body = new LinkedHashMap<>();
+            body.put("model", model);
+            body.put("messages", msgs);
+            body.put("max_tokens", maxTokens);
+            body.put("temperature", temperature);
+            body.put("stream", true);
+
+            String json = new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(body);
+            HttpRequest req = HttpRequest.newBuilder()
+                    .uri(URI.create(apiBaseUrl + "/chat/completions"))
+                    .header("Content-Type", "application/json")
+                    .header("Accept", "text/event-stream")
+                    .header("Authorization", "Bearer " + apiKey)
+                    .timeout(java.time.Duration.ofSeconds(60))
+                    .POST(HttpRequest.BodyPublishers.ofString(json))
+                    .build();
+            HttpResponse<java.io.InputStream> resp =
+                    httpClient.send(req, HttpResponse.BodyHandlers.ofInputStream());
+
+            if (resp.statusCode() < 200 || resp.statusCode() >= 300) {
+                String errBody = new String(resp.body().readAllBytes(), StandardCharsets.UTF_8);
+                log.error("AI 流式接口返回非 2xx: status={}, body={}", resp.statusCode(),
+                        errBody.length() > 500 ? errBody.substring(0, 500) : errBody);
+                throw new BusinessException(ErrorCode.AI_SERVICE_UNAVAILABLE);
+            }
+
+            com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+            try (BufferedReader reader = new BufferedReader(
+                    new InputStreamReader(resp.body(), StandardCharsets.UTF_8))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    if (!line.startsWith("data:")) {
+                        continue;   // 跳过空行、注释与 keep-alive
+                    }
+                    String payload = line.substring(5).trim();
+                    if (payload.isEmpty()) {
+                        continue;
+                    }
+                    if ("[DONE]".equals(payload)) {
+                        break;
+                    }
+                    JsonNode node = mapper.readTree(payload);
+                    String content = node.path("choices").path(0).path("delta").path("content").asText("");
+                    if (!content.isEmpty()) {
+                        tokenConsumer.accept(content);
+                    }
+                }
+            }
+        } catch (BusinessException e) {
+            throw e;
+        } catch (Exception e) {
+            log.error("AI 流式调用失败", e);
+            throw new BusinessException(ErrorCode.AI_SERVICE_UNAVAILABLE);
+        }
+    }
+
+    /**
+     * 优先真流式（边生成边推）；流式尚未发出任何内容即失败时，
+     * 回退为非流式接口 + 分块推送，保证上游不支持 stream 时功能仍可用。
+     */
     private void callAiApiStream(List<AiChatRequest.ChatMessage> messages, java.util.function.Consumer<String> chunkConsumer) {
-        // 流式实现简化版：使用非流式结果模拟流式输出，分块发送减少 SSE 次数
+        StringBuilder received = new StringBuilder();
+        try {
+            streamAiApi(messages, chunk -> {
+                received.append(chunk);
+                chunkConsumer.accept(chunk);
+            });
+            return;
+        } catch (Exception e) {
+            if (received.length() > 0) {
+                throw e;   // 已推送部分内容，无法干净回退
+            }
+            log.warn("AI 流式接口不可用，回退为非流式分块推送: {}", e.getMessage());
+        }
         String fullResponse = callAiApi(messages);
         for (int i = 0; i < fullResponse.length(); i += 5) {
             chunkConsumer.accept(fullResponse.substring(i, Math.min(i + 5, fullResponse.length())));
