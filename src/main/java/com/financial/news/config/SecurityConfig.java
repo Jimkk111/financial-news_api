@@ -61,6 +61,14 @@ public class SecurityConfig {
                     response.setCharacterEncoding(StandardCharsets.UTF_8.name());
                     response.getWriter().write(
                             "{\"code\":\"UNAUTHORIZED\",\"msg\":\"未认证或 Token 无效\",\"data\":null}");
+                })
+                // 已认证但授权被拒时返回 403 JSON（而非默认 Whitelabel 页）
+                .accessDeniedHandler((request, response, ex) -> {
+                    response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+                    response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+                    response.setCharacterEncoding(StandardCharsets.UTF_8.name());
+                    response.getWriter().write(
+                            "{\"code\":\"FORBIDDEN\",\"msg\":\"权限不足\",\"data\":null}");
                 }))
             ;
 
