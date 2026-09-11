@@ -40,8 +40,11 @@ public class SecurityConfig {
             .csrf(AbstractHttpConfigurer::disable)
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(auth -> auth
+                // 错误页放行：Boot 默认在 ERROR 转发上也跑安全过滤器，
+                // 不放行会让 sendError 触发的 /error 再次被拒，异常逃逸到 Tomcat
+                .requestMatchers("/error").permitAll()
                 // Swagger / Knife4j 放行
-                .requestMatchers("/swagger-ui/**", "/v3/api-docs/**", "/doc.html", "/webjars/**").permitAll()
+                .requestMatchers("/swagger-ui/**", "/v3/api-docs/**", "/doc.html", "/webjars/**", "/swagger-resources/**", "/favicon.ico").permitAll()
                 // 公开接口
                 .requestMatchers("/health", "/api").permitAll()
                 .requestMatchers("/api/auth/**").permitAll()
