@@ -1,6 +1,5 @@
 package com.financial.news.controller;
 
-import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.financial.news.common.Result;
 import com.financial.news.dto.request.HistoryRequest;
 import com.financial.news.dto.response.HistoryVO;
@@ -33,9 +32,7 @@ public class HistoryController {
     public Result<Result.PageResult<HistoryVO>> list(@RequestParam(defaultValue = "1") int page,
                           @RequestParam(defaultValue = "10") int pageSize) {
         JwtUserDetails u = JwtUserDetails.getCurrentUser();
-        IPage<HistoryVO> r = historyService.listHistory(u.getUserId(), page, pageSize);
-        return Result.ok(new Result.PageResult<>(
-                r.getRecords(), r.getTotal(), (int) r.getCurrent(), (int) r.getSize()));
+        return Result.ok(historyService.listHistory(u.getUserId(), page, pageSize));
     }
 
     @Operation(summary = "添加浏览记录")

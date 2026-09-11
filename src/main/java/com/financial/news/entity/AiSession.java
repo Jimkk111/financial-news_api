@@ -1,6 +1,5 @@
 package com.financial.news.entity;
 
-import com.baomidou.mybatisplus.annotation.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -18,10 +17,8 @@ import java.time.LocalDateTime;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-@TableName("ai_sessions")
 public class AiSession {
 
-    @TableId(type = IdType.AUTO)
     private Integer id;
 
     /** 会话公开 ID，格式 session-xxxxxxxx */
@@ -33,9 +30,7 @@ public class AiSession {
     /** 会话标题（AI 自动生成，最长30字截断） */
     private String title;
 
-    @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createdAt;
 
-    @TableField(fill = FieldFill.INSERT_UPDATE)
     private LocalDateTime updatedAt;
 }

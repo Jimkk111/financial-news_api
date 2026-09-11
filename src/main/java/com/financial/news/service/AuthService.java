@@ -1,7 +1,5 @@
 package com.financial.news.service;
 
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.financial.news.common.BusinessException;
 import com.financial.news.common.ErrorCode;
 import com.financial.news.dto.request.*;
@@ -14,13 +12,13 @@ import com.financial.news.security.JwtTokenProvider;
 import com.financial.news.utils.IdGenerator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
@@ -36,7 +34,7 @@ import java.time.LocalDateTime;
 @Slf4j
 @Service
 @RequiredArgsConstructor
-public class AuthService extends ServiceImpl<UserMapper, User> {
+public class AuthService {
 
     private final UserMapper userMapper;
     private final VerificationCodeMapper verificationCodeMapper;
@@ -60,10 +58,7 @@ public class AuthService extends ServiceImpl<UserMapper, User> {
      * 用户登录（支持用户名或邮箱）
      */
     public LoginResponse login(LoginRequest request) {
-        User user = userMapper.selectOne(new LambdaQueryWrapper<User>()
-                .eq(User::getUsername, request.getUsername())
-                .or()
-                .eq(User::getEmail, request.getUsername()));
+        User user = userMapper.selectByUsernameOrEmail(request.getUsername());
 
         if (user == null || !passwordEncoder.matches(request.getPassword(), user.getPasswordHash())) {
             throw new BusinessException(ErrorCode.INVALID_CREDENTIALS);
@@ -79,11 +74,11 @@ public class AuthService extends ServiceImpl<UserMapper, User> {
     @Transactional
     public LoginResponse register(RegisterRequest request) {
         // 校验用户名唯一性
-        if (userMapper.exists(new LambdaQueryWrapper<User>().eq(User::getUsername, request.getUsername()))) {
+        if (userMapper.countByUsername(request.getUsername()) > 0) {
             throw new BusinessException(ErrorCode.USERNAME_EXISTS);
         }
         // 校验邮箱唯一性
-        if (userMapper.exists(new LambdaQueryWrapper<User>().eq(User::getEmail, request.getEmail()))) {
+        if (userMapper.countByEmail(request.getEmail()) > 0) {
             throw new BusinessException(ErrorCode.EMAIL_EXISTS);
         }
         // 校验验证码
@@ -105,8 +100,7 @@ public class AuthService extends ServiceImpl<UserMapper, User> {
         try {
             userMapper.insert(user);
         } catch (DuplicateKeyException e) {
-            throw new BusinessException(userMapper.exists(new LambdaQueryWrapper<User>()
-                    .eq(User::getUsername, request.getUsername()))
+            throw new BusinessException(userMapper.countByUsername(request.getUsername()) > 0
                     ? ErrorCode.USERNAME_EXISTS : ErrorCode.EMAIL_EXISTS);
         }
 
@@ -175,8 +169,7 @@ public class AuthService extends ServiceImpl<UserMapper, User> {
      */
     @Transactional
     public void resetPassword(ResetPasswordRequest request) {
-        User user = userMapper.selectOne(new LambdaQueryWrapper<User>()
-                .eq(User::getUsername, request.getUsername()));
+        User user = userMapper.selectByUsername(request.getUsername());
         if (user == null || !user.getEmail().equals(request.getEmail())) {
             throw new BusinessException(ErrorCode.USERNAME_EMAIL_MISMATCH);
         }
@@ -209,12 +202,7 @@ public class AuthService extends ServiceImpl<UserMapper, User> {
             log.warn("Redis 验证码防爆破不可用，降级放行: {}", e.getMessage());
         }
 
-        VerificationCode vc = verificationCodeMapper.selectOne(
-                new LambdaQueryWrapper<VerificationCode>()
-                        .eq(VerificationCode::getEmail, email)
-                        .eq(VerificationCode::getCode, code)
-                        .gt(VerificationCode::getExpiresAt, LocalDateTime.now())
-        );
+        VerificationCode vc = verificationCodeMapper.selectValid(email, code, LocalDateTime.now());
         if (vc == null) {
             recordCodeFailure(email);
             throw new BusinessException(ErrorCode.INVALID_CODE);
@@ -235,8 +223,7 @@ public class AuthService extends ServiceImpl<UserMapper, User> {
             }
             if (fails != null && fails >= CODE_MAX_ATTEMPTS) {
                 // 连续错误达到上限，销毁有效验证码
-                verificationCodeMapper.delete(new LambdaQueryWrapper<VerificationCode>()
-                        .eq(VerificationCode::getEmail, email));
+                verificationCodeMapper.deleteByEmail(email);
             }
         } catch (Exception e) {
             log.warn("Redis 验证码失败计数不可用: {}", e.getMessage());

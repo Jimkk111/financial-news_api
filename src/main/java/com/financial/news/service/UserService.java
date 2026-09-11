@@ -1,10 +1,8 @@
 package com.financial.news.service;
 
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
-import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.financial.news.common.BusinessException;
 import com.financial.news.common.ErrorCode;
+import com.financial.news.common.Result;
 import com.financial.news.dto.request.UpdateUserRequest;
 import com.financial.news.dto.response.UserResponse;
 import com.financial.news.entity.News;
@@ -29,6 +27,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.LocalDate;
 import java.util.HexFormat;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -41,7 +40,7 @@ import java.util.UUID;
 @Slf4j
 @Service
 @RequiredArgsConstructor
-public class UserService extends ServiceImpl<UserMapper, User> {
+public class UserService {
 
     private final UserMapper userMapper;
     private final NewsMapper newsMapper;
@@ -54,6 +53,8 @@ public class UserService extends ServiceImpl<UserMapper, User> {
 
     @Value("${upload.avatar-max-size:2097152}")
     private long avatarMaxSize;
+
+    private static final int MAX_PAGE_SIZE = 50;
 
     /**
      * 获取当前用户信息
@@ -72,14 +73,14 @@ public class UserService extends ServiceImpl<UserMapper, User> {
         boolean updated = false;
 
         if (request.getUsername() != null && !request.getUsername().equals(user.getUsername())) {
-            if (userMapper.exists(new LambdaQueryWrapper<User>().eq(User::getUsername, request.getUsername()))) {
+            if (userMapper.countByUsername(request.getUsername()) > 0) {
                 throw new BusinessException(ErrorCode.USERNAME_EXISTS);
             }
             user.setUsername(request.getUsername());
             updated = true;
         }
         if (request.getEmail() != null && !request.getEmail().equals(user.getEmail())) {
-            if (userMapper.exists(new LambdaQueryWrapper<User>().eq(User::getEmail, request.getEmail()))) {
+            if (userMapper.countByEmail(request.getEmail()) > 0) {
                 throw new BusinessException(ErrorCode.EMAIL_EXISTS);
             }
             user.setEmail(request.getEmail());
@@ -93,9 +94,8 @@ public class UserService extends ServiceImpl<UserMapper, User> {
         try {
             userMapper.updateById(user);
         } catch (DuplicateKeyException e) {
-            // exists 预检与写入之间的并发窗口由数据库唯一索引兜底
-            throw new BusinessException(userMapper.exists(new LambdaQueryWrapper<User>()
-                    .eq(User::getUsername, user.getUsername()))
+            // 预检与写入之间的并发窗口由数据库唯一索引兜底
+            throw new BusinessException(userMapper.countByUsername(user.getUsername()) > 0
                     ? ErrorCode.USERNAME_EXISTS : ErrorCode.EMAIL_EXISTS);
         }
         return buildUserResponse(user);
@@ -209,12 +209,13 @@ public class UserService extends ServiceImpl<UserMapper, User> {
     /**
      * 获取当前用户发布的新闻列表（分页）
      */
-    public Page<News> getUserNews(Integer userId, int page, int pageSize) {
-        Page<News> pageParam = new Page<>(page, Math.min(pageSize, 50));
-        return newsMapper.selectPage(pageParam,
-                new LambdaQueryWrapper<News>()
-                        .eq(News::getUserId, userId)
-                        .orderByDesc(News::getCreatedAt));
+    public Result.PageResult<News> getUserNews(Integer userId, int page, int pageSize) {
+        page = Math.max(page, 1);
+        pageSize = Math.min(pageSize, MAX_PAGE_SIZE);
+        long total = newsMapper.countByUser(userId);
+        List<News> records = total == 0 ? List.of()
+                : newsMapper.selectByUserPage(userId, (page - 1) * pageSize, pageSize);
+        return new Result.PageResult<>(records, total, page, pageSize);
     }
 
     private User findById(Integer userId) {

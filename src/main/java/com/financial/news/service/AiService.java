@@ -1,7 +1,5 @@
 package com.financial.news.service;
 
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.financial.news.common.BusinessException;
 import com.financial.news.common.ErrorCode;
 import com.financial.news.dto.request.AiChatRequest;
@@ -35,7 +33,7 @@ import java.util.concurrent.CompletableFuture;
 @Slf4j
 @Service
 @RequiredArgsConstructor
-public class AiService extends ServiceImpl<AiSessionMapper, AiSession> {
+public class AiService {
 
     private final AiSessionMapper aiSessionMapper;
     private final AiMessageMapper aiMessageMapper;
@@ -62,8 +60,7 @@ public class AiService extends ServiceImpl<AiSessionMapper, AiSession> {
 
     /** 获取用户的 AI 会话列表（批量取各会话最后一条消息，避免 N+1） */
     public List<Map<String, Object>> listSessions(Integer userId) {
-        List<AiSession> sessions = aiSessionMapper.selectList(
-                new LambdaQueryWrapper<AiSession>().eq(AiSession::getUserId, userId).orderByDesc(AiSession::getUpdatedAt));
+        List<AiSession> sessions = aiSessionMapper.selectByUserId(userId);
         if (sessions.isEmpty()) {
             return List.of();
         }
@@ -99,8 +96,7 @@ public class AiService extends ServiceImpl<AiSessionMapper, AiSession> {
     /** 获取会话的消息列表 */
     public List<AiMessage> getMessages(String sessionId, Integer userId) {
         AiSession session = findSession(sessionId, userId);
-        return aiMessageMapper.selectList(
-                new LambdaQueryWrapper<AiMessage>().eq(AiMessage::getSessionId, session.getId()).orderByAsc(AiMessage::getCreatedAt));
+        return aiMessageMapper.selectBySessionId(session.getId());
     }
 
     /** 更新会话标题 */
@@ -114,7 +110,7 @@ public class AiService extends ServiceImpl<AiSessionMapper, AiSession> {
     @Transactional
     public void deleteSession(String sessionId, Integer userId) {
         AiSession session = findSession(sessionId, userId);
-        aiMessageMapper.delete(new LambdaQueryWrapper<AiMessage>().eq(AiMessage::getSessionId, session.getId()));
+        aiMessageMapper.deleteBySessionId(session.getId());
         aiSessionMapper.deleteById(session.getId());
     }
 
@@ -204,7 +200,7 @@ public class AiService extends ServiceImpl<AiSessionMapper, AiSession> {
 
     private AiSession resolveSession(Integer userId, String sessionId) {
         if (sessionId != null && !sessionId.isBlank()) {
-            AiSession s = aiSessionMapper.selectOne(new LambdaQueryWrapper<AiSession>().eq(AiSession::getSessionId, sessionId));
+            AiSession s = aiSessionMapper.selectBySessionId(sessionId);
             if (s != null && s.getUserId().equals(userId)) return s;
         }
         String newId = IdGenerator.generateSessionId();
@@ -214,7 +210,7 @@ public class AiService extends ServiceImpl<AiSessionMapper, AiSession> {
     }
 
     private AiSession findSession(String sessionId, Integer userId) {
-        AiSession s = aiSessionMapper.selectOne(new LambdaQueryWrapper<AiSession>().eq(AiSession::getSessionId, sessionId));
+        AiSession s = aiSessionMapper.selectBySessionId(sessionId);
         if (s == null) throw new BusinessException(ErrorCode.AI_SESSION_NOT_FOUND);
         if (!s.getUserId().equals(userId)) throw new BusinessException(ErrorCode.AI_SESSION_NOT_OWNER);
         return s;

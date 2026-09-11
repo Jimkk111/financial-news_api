@@ -1,0 +1,144 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.financial.news.mapper.NewsMapper">
+
+    <resultMap id="BaseResultMap" type="com.financial.news.entity.News">
+        <id column="id" property="id"/>
+        <result column="title" property="title"/>
+        <result column="summary" property="summary"/>
+        <result column="content" property="content"/>
+        <result column="content_json" property="contentJson"
+                typeHandler="com.financial.news.utils.BlockListTypeHandler"/>
+        <result column="publish_time" property="publishTime"/>
+        <result column="source" property="source"/>
+        <result column="url" property="url"/>
+        <result column="content_fingerprint" property="contentFingerprint"/>
+        <result column="views" property="views"/>
+        <result column="has_image" property="hasImage"/>
+        <result column="image_url" property="imageUrl"/>
+        <result column="category_id" property="categoryId"/>
+        <result column="user_id" property="userId"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="updated_at" property="updatedAt"/>
+        <result column="deleted_at" property="deletedAt"/>
+    </resultMap>
+
+    <!-- 全列（含 content_json） -->
+    <sql id="allColumns">
+        id, title, summary, content, content_json, publish_time, source, url, content_fingerprint,
+        views, has_image, image_url, category_id, user_id, created_at, updated_at, deleted_at
+    </sql>
+
+    <!-- 列表列（排除 content_json，减小列表响应体积） -->
+    <sql id="listColumns">
+        id, title, summary, content, publish_time, source, url, content_fingerprint,
+        views, has_image, image_url, category_id, user_id, created_at, updated_at, deleted_at
+    </sql>
+
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO news (title, summary, content, content_json, publish_time, source, url,
+                          content_fingerprint, views, has_image, image_url, category_id, user_id,
+                          created_at, updated_at)
+        VALUES (#{title}, #{summary}, #{content},
+                #{contentJson,typeHandler=com.financial.news.utils.BlockListTypeHandler},
+                #{publishTime}, #{source}, #{url}, #{contentFingerprint}, #{views},
+                #{hasImage}, #{imageUrl}, #{categoryId}, #{userId}, #{createdAt}, #{updatedAt})
+    </insert>
+
+    <select id="selectById" resultMap="BaseResultMap">
+        SELECT <include refid="allColumns"/>
+        FROM news
+        WHERE id = #{id} AND deleted_at IS NULL
+    </select>
+
+    <select id="selectListPage" resultMap="BaseResultMap">
+        SELECT <include refid="listColumns"/>
+        FROM news
+        <where>
+            deleted_at IS NULL
+            <if test="categoryId != null">
+                AND category_id = #{categoryId}
+            </if>
+        </where>
+        <choose>
+            <when test="popular">ORDER BY views DESC</when>
+            <otherwise>ORDER BY publish_time DESC</otherwise>
+        </choose>
+        LIMIT #{offset}, #{limit}
+    </select>
+
+    <select id="countListPage" resultType="long">
+        SELECT COUNT(*)
+        FROM news
+        <where>
+            deleted_at IS NULL
+            <if test="categoryId != null">
+                AND category_id = #{categoryId}
+            </if>
+        </where>
+    </select>
+
+    <select id="searchPage" resultMap="BaseResultMap">
+        SELECT <include refid="listColumns"/>
+        FROM news
+        WHERE deleted_at IS NULL
+          AND (title LIKE CONCAT('%', #{keyword}, '%') OR summary LIKE CONCAT('%', #{keyword}, '%'))
+        ORDER BY publish_time DESC
+        LIMIT #{offset}, #{limit}
+    </select>
+
+    <select id="countSearch" resultType="long">
+        SELECT COUNT(*)
+        FROM news
+        WHERE deleted_at IS NULL
+          AND (title LIKE CONCAT('%', #{keyword}, '%') OR summary LIKE CONCAT('%', #{keyword}, '%'))
+    </select>
+
+    <select id="selectByUserPage" resultMap="BaseResultMap">
+        SELECT <include refid="allColumns"/>
+        FROM news
+        WHERE user_id = #{userId} AND deleted_at IS NULL
+        ORDER BY created_at DESC
+        LIMIT #{offset}, #{limit}
+    </select>
+
+    <select id="countByUser" resultType="long">
+        SELECT COUNT(*)
+        FROM news
+        WHERE user_id = #{userId} AND deleted_at IS NULL
+    </select>
+
+    <select id="selectRecentFingerprints" resultMap="BaseResultMap">
+        SELECT id, content_fingerprint
+        FROM news
+        WHERE content_fingerprint IS NOT NULL AND deleted_at IS NULL
+        ORDER BY id DESC
+        LIMIT #{limit}
+    </select>
+
+    <select id="selectFirstByTitle" resultMap="BaseResultMap">
+        SELECT <include refid="allColumns"/>
+        FROM news
+        WHERE title = #{title} AND deleted_at IS NULL
+        LIMIT 1
+    </select>
+
+    <select id="countByUrl" resultType="long">
+        SELECT COUNT(*)
+        FROM news
+        WHERE url = #{url} AND deleted_at IS NULL
+    </select>
+
+    <select id="countByTitle" resultType="long">
+        SELECT COUNT(*)
+        FROM news
+        WHERE title = #{title} AND deleted_at IS NULL
+    </select>
+
+    <select id="countById" resultType="long">
+        SELECT COUNT(*)
+        FROM news
+        WHERE id = #{id} AND deleted_at IS NULL
+    </select>
+
+</mapper>

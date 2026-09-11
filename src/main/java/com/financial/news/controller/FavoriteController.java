@@ -1,6 +1,5 @@
 package com.financial.news.controller;
 
-import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.financial.news.common.Result;
 import com.financial.news.dto.request.FavoriteRequest;
 import com.financial.news.dto.response.FavoriteVO;
@@ -35,9 +34,7 @@ public class FavoriteController {
     public Result<Result.PageResult<FavoriteVO>> list(@RequestParam(defaultValue = "1") int page,
                           @RequestParam(defaultValue = "10") int pageSize) {
         JwtUserDetails u = JwtUserDetails.getCurrentUser();
-        IPage<FavoriteVO> r = favoriteService.listFavorites(u.getUserId(), page, pageSize);
-        return Result.ok(new Result.PageResult<>(
-                r.getRecords(), r.getTotal(), (int) r.getCurrent(), (int) r.getSize()));
+        return Result.ok(favoriteService.listFavorites(u.getUserId(), page, pageSize));
     }
 
     @Operation(summary = "添加收藏")

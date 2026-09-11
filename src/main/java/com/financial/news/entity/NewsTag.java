@@ -1,6 +1,5 @@
 package com.financial.news.entity;
 
-import com.baomidou.mybatisplus.annotation.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -18,10 +17,8 @@ import java.time.LocalDateTime;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-@TableName("news_tags")
 public class NewsTag {
 
-    @TableId(type = IdType.AUTO)
     private Integer id;
 
     /** 新闻 ID */
@@ -30,6 +27,5 @@ public class NewsTag {
     /** 标签 ID */
     private Integer tagId;
 
-    @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createdAt;
 }

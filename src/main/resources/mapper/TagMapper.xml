@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.financial.news.mapper.TagMapper">
+
+    <resultMap id="BaseResultMap" type="com.financial.news.entity.Tag">
+        <id column="id" property="id"/>
+        <result column="name" property="name"/>
+        <result column="created_at" property="createdAt"/>
+    </resultMap>
+
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO tags (name, created_at)
+        VALUES (#{name}, #{createdAt})
+    </insert>
+
+    <select id="selectListAll" resultMap="BaseResultMap">
+        SELECT id, name, created_at
+        FROM tags
+        ORDER BY id
+    </select>
+
+    <select id="selectFirstByName" resultMap="BaseResultMap">
+        SELECT id, name, created_at
+        FROM tags
+        WHERE name = #{name}
+        ORDER BY id
+        LIMIT 1
+    </select>
+
+    <select id="selectByIds" resultMap="BaseResultMap">
+        SELECT id, name, created_at
+        FROM tags
+        WHERE id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+        ORDER BY id
+    </select>
+
+</mapper>
