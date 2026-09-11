@@ -1,6 +1,5 @@
 package com.financial.news.service;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.financial.news.common.BusinessException;
 import com.financial.news.common.ErrorCode;
 import com.financial.news.dto.request.AiChatRequest;
@@ -9,6 +8,15 @@ import com.financial.news.entity.AiSession;
 import com.financial.news.mapper.AiMessageMapper;
 import com.financial.news.mapper.AiSessionMapper;
 import com.financial.news.utils.IdGenerator;
+import dev.langchain4j.data.message.ChatMessage;
+import dev.langchain4j.data.message.SystemMessage;
+import dev.langchain4j.data.message.UserMessage;
+import dev.langchain4j.model.StreamingResponseHandler;
+import dev.langchain4j.model.chat.ChatLanguageModel;
+import dev.langchain4j.model.chat.StreamingChatLanguageModel;
+import dev.langchain4j.model.openai.OpenAiChatModel;
+import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
+import dev.langchain4j.model.output.Response;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -16,16 +24,12 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
-import java.io.BufferedReader;
 import java.io.IOException;
-import java.io.InputStreamReader;
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
-import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * AI 服务
@@ -48,7 +52,60 @@ public class AiService {
     @Value("${ai.max-tokens:2000}") private int maxTokens;
     @Value("${ai.temperature:0.7}") private double temperature;
 
-    private final HttpClient httpClient = HttpClient.newHttpClient();
+    /** LangChain4j 模型懒加载：@Value 注入完成后首次调用时按配置构建 */
+    private volatile ChatLanguageModel chatLanguageModel;
+    private volatile StreamingChatLanguageModel streamingChatLanguageModel;
+
+    private ChatLanguageModel chatModel() {
+        if (chatLanguageModel == null) {
+            synchronized (this) {
+                if (chatLanguageModel == null) {
+                    chatLanguageModel = OpenAiChatModel.builder()
+                            .apiKey(apiKey)
+                            .baseUrl(apiBaseUrl)
+                            .modelName(model)
+                            .maxTokens(maxTokens)
+                            .temperature(temperature)
+                            .timeout(java.time.Duration.ofSeconds(60))
+                            .build();
+                }
+            }
+        }
+        return chatLanguageModel;
+    }
+
+    private StreamingChatLanguageModel streamingModel() {
+        if (streamingChatLanguageModel == null) {
+            synchronized (this) {
+                if (streamingChatLanguageModel == null) {
+                    streamingChatLanguageModel = OpenAiStreamingChatModel.builder()
+                            .apiKey(apiKey)
+                            .baseUrl(apiBaseUrl)
+                            .modelName(model)
+                            .maxTokens(maxTokens)
+                            .temperature(temperature)
+                            // 覆盖整个流式生成周期（SSE Emitter 超时 300s 之内）
+                            .timeout(java.time.Duration.ofSeconds(240))
+                            .build();
+                }
+            }
+        }
+        return streamingChatLanguageModel;
+    }
+
+    /** 项目消息角色 → LangChain4j 消息 */
+    private List<ChatMessage> toLangChainMessages(List<AiChatRequest.ChatMessage> messages) {
+        List<ChatMessage> result = new ArrayList<>();
+        for (AiChatRequest.ChatMessage m : messages) {
+            String role = m.getRole() == null ? "user" : m.getRole().toLowerCase();
+            switch (role) {
+                case "assistant" -> result.add(dev.langchain4j.data.message.AiMessage.from(m.getContent()));
+                case "system" -> result.add(SystemMessage.from(m.getContent()));
+                default -> result.add(UserMessage.from(m.getContent()));
+            }
+        }
+        return result;
+    }
 
     /** SSE 流式推送专用线程池，避免占用公共 ForkJoinPool 和请求线程 */
     private final java.util.concurrent.ExecutorService sseExecutor =
@@ -220,43 +277,17 @@ public class AiService {
         return s;
     }
 
+    /**
+     * 调用 AI（LangChain4j 非流式），返回完整回复文本。
+     * 上游异常统一映射为 AI_SERVICE_UNAVAILABLE，不透出内部实现细节。
+     */
     protected String callAiApi(List<AiChatRequest.ChatMessage> messages) {
         try {
-            List<Map<String, String>> msgs = messages.stream()
-                    .map(m -> Map.of("role", m.getRole(), "content", m.getContent())).toList();
-            Map<String, Object> body = new LinkedHashMap<>();
-            body.put("model", model);
-            body.put("messages", msgs);
-            body.put("max_tokens", maxTokens);
-            body.put("temperature", temperature);
-
-            String json = new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(body);
-            HttpRequest req = HttpRequest.newBuilder()
-                    .uri(URI.create(apiBaseUrl + "/chat/completions"))
-                    .header("Content-Type", "application/json")
-                    .header("Authorization", "Bearer " + apiKey)
-                    .timeout(java.time.Duration.ofSeconds(60))
-                    .POST(HttpRequest.BodyPublishers.ofString(json))
-                    .build();
-            HttpResponse<String> resp = httpClient.send(req, HttpResponse.BodyHandlers.ofString());
-
-            // 上游非 2xx 时按服务不可用处理，不透出上游错误细节
-            if (resp.statusCode() < 200 || resp.statusCode() >= 300) {
-                log.error("AI API 返回非 2xx: status={}, body={}", resp.statusCode(),
-                        resp.body() != null && resp.body().length() > 500 ? resp.body().substring(0, 500) : resp.body());
-                throw new BusinessException(ErrorCode.AI_SERVICE_UNAVAILABLE);
-            }
-
-            Map<String, Object> result = new com.fasterxml.jackson.databind.ObjectMapper().readValue(resp.body(), Map.class);
-            List<Map<String, Object>> choices = (List<Map<String, Object>>) result.get("choices");
-            if (choices == null || choices.isEmpty()) {
-                log.error("AI API 响应缺少 choices: {}", result.keySet());
-                throw new BusinessException(ErrorCode.AI_SERVICE_UNAVAILABLE);
-            }
-            Map<String, String> message = (Map<String, String>) choices.get(0).get("message");
-            String content = message != null ? message.get("content") : null;
-            if (content == null) {
-                log.error("AI API 响应缺少 message.content");
+            Response<dev.langchain4j.data.message.AiMessage> response =
+                    chatModel().generate(toLangChainMessages(messages));
+            String content = response.content().text();
+            if (content == null || content.isBlank()) {
+                log.error("AI API 响应内容为空");
                 throw new BusinessException(ErrorCode.AI_SERVICE_UNAVAILABLE);
             }
             return content;
@@ -270,66 +301,46 @@ public class AiService {
     }
 
     /**
-     * 调用 AI 流式接口（stream:true，OpenAI 兼容 SSE 协议），逐 token 回调。
-     * <p>上游返回 "data: {json}" 行序列（delta.content 为增量文本），[DONE] 结束；
-     * 超时只约束首包（响应头），长回复的持续生成不会被掐断。</p>
+     * 调用 AI 流式接口（LangChain4j StreamingChatLanguageModel，底层 stream:true），
+     * 逐 token 回调；generate 为异步回调模型，用 CountDownLatch 等待生成完成。
      */
     protected void streamAiApi(List<AiChatRequest.ChatMessage> messages, java.util.function.Consumer<String> tokenConsumer) {
-        try {
-            List<Map<String, String>> msgs = messages.stream()
-                    .map(m -> Map.of("role", m.getRole(), "content", m.getContent())).toList();
-            Map<String, Object> body = new LinkedHashMap<>();
-            body.put("model", model);
-            body.put("messages", msgs);
-            body.put("max_tokens", maxTokens);
-            body.put("temperature", temperature);
-            body.put("stream", true);
+        CountDownLatch done = new CountDownLatch(1);
+        AtomicReference<Throwable> error = new AtomicReference<>();
 
-            String json = new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(body);
-            HttpRequest req = HttpRequest.newBuilder()
-                    .uri(URI.create(apiBaseUrl + "/chat/completions"))
-                    .header("Content-Type", "application/json")
-                    .header("Accept", "text/event-stream")
-                    .header("Authorization", "Bearer " + apiKey)
-                    .timeout(java.time.Duration.ofSeconds(60))
-                    .POST(HttpRequest.BodyPublishers.ofString(json))
-                    .build();
-            HttpResponse<java.io.InputStream> resp =
-                    httpClient.send(req, HttpResponse.BodyHandlers.ofInputStream());
-
-            if (resp.statusCode() < 200 || resp.statusCode() >= 300) {
-                String errBody = new String(resp.body().readAllBytes(), StandardCharsets.UTF_8);
-                log.error("AI 流式接口返回非 2xx: status={}, body={}", resp.statusCode(),
-                        errBody.length() > 500 ? errBody.substring(0, 500) : errBody);
-                throw new BusinessException(ErrorCode.AI_SERVICE_UNAVAILABLE);
-            }
-
-            com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
-            try (BufferedReader reader = new BufferedReader(
-                    new InputStreamReader(resp.body(), StandardCharsets.UTF_8))) {
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    if (!line.startsWith("data:")) {
-                        continue;   // 跳过空行、注释与 keep-alive
-                    }
-                    String payload = line.substring(5).trim();
-                    if (payload.isEmpty()) {
-                        continue;
-                    }
-                    if ("[DONE]".equals(payload)) {
-                        break;
-                    }
-                    JsonNode node = mapper.readTree(payload);
-                    String content = node.path("choices").path(0).path("delta").path("content").asText("");
-                    if (!content.isEmpty()) {
-                        tokenConsumer.accept(content);
-                    }
+        streamingModel().generate(toLangChainMessages(messages), new StreamingResponseHandler<dev.langchain4j.data.message.AiMessage>() {
+            @Override
+            public void onNext(String token) {
+                if (token != null && !token.isEmpty()) {
+                    tokenConsumer.accept(token);
                 }
             }
-        } catch (BusinessException e) {
-            throw e;
-        } catch (Exception e) {
-            log.error("AI 流式调用失败", e);
+
+            @Override
+            public void onComplete(Response<dev.langchain4j.data.message.AiMessage> response) {
+                done.countDown();
+            }
+
+            @Override
+            public void onError(Throwable throwable) {
+                error.set(throwable);
+                done.countDown();
+            }
+        });
+
+        try {
+            if (!done.await(280, TimeUnit.SECONDS)) {
+                log.error("AI 流式响应等待超时");
+                throw new BusinessException(ErrorCode.AI_SERVICE_UNAVAILABLE);
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new BusinessException(ErrorCode.AI_SERVICE_UNAVAILABLE);
+        }
+
+        Throwable t = error.get();
+        if (t != null) {
+            log.error("AI 流式调用失败", t);
             throw new BusinessException(ErrorCode.AI_SERVICE_UNAVAILABLE);
         }
     }
