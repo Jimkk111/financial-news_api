@@ -11,6 +11,7 @@ import com.financial.news.entity.News;
 import com.financial.news.entity.User;
 import com.financial.news.mapper.NewsMapper;
 import com.financial.news.mapper.UserMapper;
+import com.financial.news.utils.FileTypes;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -28,8 +29,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.LocalDate;
-import java.util.HexFormat;
-import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -100,14 +99,6 @@ public class UserService extends ServiceImpl<UserMapper, User> {
         }
         return buildUserResponse(user);
     }
-
-    /** 图片魔数白名单，Content-Type 请求头可伪造，以文件头为准 */
-    private static final Map<String, String> IMAGE_MAGIC_NUMBERS = Map.of(
-            "jpeg", "FFD8FF",
-            "png", "89504E47",
-            "gif", "474946",
-            "webp", "52494646"
-    );
 
     /**
      * 上传头像
@@ -186,24 +177,7 @@ public class UserService extends ServiceImpl<UserMapper, User> {
         } catch (IOException e) {
             return null;
         }
-        if (header.length < 4) {
-            return null;
-        }
-        String hex = HexFormat.of().formatHex(header).toUpperCase();
-        if (hex.startsWith(IMAGE_MAGIC_NUMBERS.get("jpeg"))) {
-            return "jpeg";
-        }
-        if (hex.startsWith(IMAGE_MAGIC_NUMBERS.get("png"))) {
-            return "png";
-        }
-        if (hex.startsWith(IMAGE_MAGIC_NUMBERS.get("gif"))) {
-            return "gif";
-        }
-        // RIFF....WEBP
-        if (hex.startsWith("52494646") && hex.length() >= 12 && hex.regionMatches(8, "57454250", 0, 8)) {
-            return "webp";
-        }
-        return null;
+        return FileTypes.detectImageExtension(header);
     }
 
     /**

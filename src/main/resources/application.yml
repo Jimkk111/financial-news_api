@@ -50,12 +50,12 @@ spring:
             required: true
     default-encoding: UTF-8
 
-  # 文件上传配置
+  # 文件上传配置（上限取视频 200MB；头像等小文件由业务层自行校验更小的上限）
   servlet:
     multipart:
       enabled: true
-      max-file-size: 5MB
-      max-request-size: 5MB
+      max-file-size: 210MB
+      max-request-size: 210MB
 
   # Jackson 配置
   jackson:
@@ -158,6 +158,17 @@ upload:
   allowed-types: image/jpeg,image/png,image/gif,image/webp
   dir: uploads
   url-prefix: /uploads
+  # 媒体文件（新闻配图/视频）上传到阿里云 OSS
+  media:
+    image-max-size: 10485760     # 10MB
+    video-max-size: 209715200    # 200MB
+  oss:
+    endpoint: ${OSS_ENDPOINT:}                 # 如 https://oss-cn-hangzhou.aliyuncs.com
+    access-key-id: ${OSS_ACCESS_KEY_ID:}
+    access-key-secret: ${OSS_ACCESS_KEY_SECRET:}
+    bucket: ${OSS_BUCKET:}
+    dir: media                                 # 对象 Key 前缀
+    custom-domain: ${OSS_CUSTOM_DOMAIN:}       # 可选自定义/CDN 域名，如 https://cdn.example.com；为空则用 bucket 外网域名
 
 # 日志配置
 logging:

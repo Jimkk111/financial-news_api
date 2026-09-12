@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.financial.news.mapper.AiMessageMapper">
+
+    <!-- 批量查询每个会话的最后一条消息（窗口函数，消除 listSessions 的 N+1 查询） -->
+    <select id="selectLastMessages" resultType="com.financial.news.entity.AiMessage">
+        SELECT t.* FROM (
+            SELECT m.*, ROW_NUMBER() OVER (PARTITION BY m.session_id ORDER BY m.created_at DESC) AS rn
+            FROM ai_messages m WHERE m.session_id IN
+            <foreach collection="sessionIds" item="id" open="(" separator="," close=")">#{id}</foreach>
+        ) t WHERE t.rn = 1
+    </select>
+</mapper>

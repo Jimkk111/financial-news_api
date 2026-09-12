@@ -57,6 +57,10 @@ public enum ErrorCode {
     CRAWLER_EXECUTION_FAILED(502, "CRAWLER_EXECUTION_FAILED", "爬虫任务执行失败"),
     CRAWLER_SOURCE_NOT_ALLOWED(400, "CRAWLER_SOURCE_NOT_ALLOWED", "数据源地址不受支持"),
 
+    // ========== 媒体上传相关 ==========
+    MEDIA_NOT_CONFIGURED(503, "MEDIA_NOT_CONFIGURED", "对象存储未配置"),
+    MEDIA_UPLOAD_FAILED(502, "MEDIA_UPLOAD_FAILED", "文件上传失败"),
+
     // ========== 新闻相关 ==========
     NEWS_NOT_FOUND(404, "NEWS_NOT_FOUND", "新闻不存在");
 

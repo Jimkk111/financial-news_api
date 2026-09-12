@@ -153,7 +153,8 @@ public class AiService extends ServiceImpl<AiSessionMapper, AiSession> {
     /** AI 对话（流式 SSE） */
     public SseEmitter chatStream(Integer userId, AiChatRequest request) {
         SseEmitter emitter = new SseEmitter(300000L); // 5分钟超时
-        CompletableFuture.runAsync(() -> {            try {
+        CompletableFuture.runAsync(() -> {            
+            try {
                 AiSession session = resolveSession(userId, request.getSessionId());
                 // 保存本轮用户消息。请求中的其余消息仅作为 AI 上下文，避免历史消息重复入库。
                 List<AiChatRequest.ChatMessage> msgs = request.getMessages();

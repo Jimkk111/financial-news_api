@@ -85,6 +85,7 @@ docker compose down -v   # 会删除数据卷，谨慎执行
 - 新闻：`GET /api/news`、`/{id}`、`/{id}/views`、`/categories`、`/tags`、`/search`（`controller/NewsController.java:19-69`）。
 - AI：会话/消息 CRUD、`POST /api/ai/chat`、`POST /api/ai/chat/stream`（`controller/AiController.java:23-77`）。
 - 爬虫：`POST /api/crawler/crawl`、`POST /api/crawler/crawl/stream`，请求 `instruction` 必填 2–500 字符，`sessionId` 可选（`controller/CrawlerController.java:24-63`、`dto/request/CrawlerRequest.java:13-25`）。
+- 媒体：`POST /api/media/image`（≤10MB，jpeg/png/gif/webp）、`POST /api/media/video`（≤200MB，mp4/mov、webm/mkv），multipart 字段 `file`，存储到阿里云 OSS（`service/MediaService.java`），返回 `{url}`；未配置 OSS 时返回 503 `MEDIA_NOT_CONFIGURED`。
 - 其他：草稿、收藏、浏览历史、用户资料；系统健康检查 `GET /health` 和 `GET /api`。
 
 安全规则见 `src/main/java/com/financial/news/config/SecurityConfig.java:22-52`：健康检查、认证接口、GET 新闻和上传静态资源公开，其余接口默认需要认证。JWT 认证相关实现位于 `security/`。
