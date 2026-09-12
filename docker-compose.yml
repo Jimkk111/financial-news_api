@@ -110,8 +110,8 @@ services:
       CRAWLER_AI_API_KEY: "${CRAWLER_AI_API_KEY:-}"
       CRAWLER_AI_BASE_URL: "${CRAWLER_AI_BASE_URL:-https://api.xiaomimimo.com/v1}"
       CRAWLER_AI_MODEL: "${CRAWLER_AI_MODEL:-mimo-v2.5}"
-      # 定时采集（默认关闭；如 .env 设 CRAWLER_INGEST_CRON="0 */30 * * * *" 为每30分钟）
-      CRAWLER_INGEST_CRON: "${CRAWLER_INGEST_CRON:--}"
+      # 定时采集（默认每30分钟；.env 设 CRAWLER_INGEST_CRON="-" 可关闭，或改表达式调频）
+      CRAWLER_INGEST_CRON: "${CRAWLER_INGEST_CRON:-0 */30 * * * *}"
       # 阿里云 OSS（媒体上传：新闻配图/视频；不配置时 /api/media/* 返回 503）
       OSS_ENDPOINT: ${OSS_ENDPOINT:-}
       OSS_ACCESS_KEY_ID: ${OSS_ACCESS_KEY_ID:-}

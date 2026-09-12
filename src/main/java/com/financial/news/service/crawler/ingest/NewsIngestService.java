@@ -3,9 +3,13 @@ package com.financial.news.service.crawler.ingest;
 import com.financial.news.entity.Category;
 import com.financial.news.entity.CrawlAudit;
 import com.financial.news.entity.News;
+import com.financial.news.entity.NewsTag;
+import com.financial.news.entity.Tag;
 import com.financial.news.mapper.CategoryMapper;
 import com.financial.news.mapper.CrawlAuditMapper;
 import com.financial.news.mapper.NewsMapper;
+import com.financial.news.mapper.NewsTagMapper;
+import com.financial.news.mapper.TagMapper;
 import com.financial.news.model.content.Block;
 import com.financial.news.utils.ContentCodec;
 import com.financial.news.utils.FingerprintUtil;
@@ -44,8 +48,11 @@ public class NewsIngestService {
     private final List<SourceConnector> connectors;
     private final NewsMapper newsMapper;
     private final CategoryMapper categoryMapper;
+    private final TagMapper tagMapper;
+    private final NewsTagMapper newsTagMapper;
     private final CrawlAuditMapper crawlAuditMapper;
     private final QualityGate qualityGate;
+    private final AiTaggingService aiTaggingService;
 
     @Value("${crawler.ingest.max-articles-per-source:20}")
     private int maxPerSource;
@@ -185,6 +192,12 @@ public class NewsIngestService {
         String summary = detail.summaryHint() != null && !detail.summaryHint().isBlank()
                 ? detail.summaryHint()
                 : plainText.substring(0, Math.min(plainText.length(), 200));
+        // 7. AI 分类打标（LLM 仅做内容增强；关闭/失败降级为来源默认分类）
+        AiTaggingService.TaggingResult tagging = aiTaggingService.classify(title, plainText);
+        Integer categoryId = tagging != null && tagging.category() != null
+                ? findOrCreateCategory(tagging.category())
+                : findOrCreateCategory(connector.defaultCategory());
+
         News news = News.builder()
                 .title(title)
                 .summary(summary)
@@ -197,7 +210,7 @@ public class NewsIngestService {
                 .views(0)
                 .hasImage(detail.imageUrl() != null && !detail.imageUrl().isBlank())
                 .imageUrl(detail.imageUrl())
-                .categoryId(findOrCreateCategory(connector.defaultCategory()))
+                .categoryId(categoryId)
                 .build();
         try {
             newsMapper.insert(news);
@@ -207,8 +220,34 @@ public class NewsIngestService {
             return;
         }
         recentFingerprints.add(fingerprint);
+        applyTags(news.getId(), tagging != null ? tagging.tags() : null);
         stat.saved++;
-        audit(runId, connector.sourceKey(), url, title, CrawlAudit.SAVED, "入库ID:" + news.getId(), plainText.length(), publishTime, started);
+        audit(runId, connector.sourceKey(), url, title, CrawlAudit.SAVED,
+                "入库ID:" + news.getId() + (tagging != null ? "; AI分类:" + tagging.category() + "; AI标签:" + String.join("/", tagging.tags()) : ""),
+                plainText.length(), publishTime, started);
+    }
+
+    /** AI 标签入库：逐个容错，单个标签失败不影响文章与其他标签 */
+    private void applyTags(Integer newsId, List<String> tagNames) {
+        if (tagNames == null || tagNames.isEmpty()) {
+            return;
+        }
+        for (String name : tagNames) {
+            try {
+                Tag existing = tagMapper.selectFirstByName(name);
+                Integer tagId;
+                if (existing != null) {
+                    tagId = existing.getId();
+                } else {
+                    Tag tag = Tag.builder().name(name).build();
+                    tagMapper.insert(tag);
+                    tagId = tag.getId();
+                }
+                newsTagMapper.insert(NewsTag.builder().newsId(newsId).tagId(tagId).build());
+            } catch (Exception e) {
+                log.warn("标签入库失败: name={}, {}", name, e.getMessage());
+            }
+        }
     }
 
     /** 最近 N 篇文章的指纹，用于本轮近似去重比对（须为可变列表：新入库的指纹会追加进来） */
