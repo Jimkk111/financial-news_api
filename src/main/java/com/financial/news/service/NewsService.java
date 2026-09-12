@@ -89,9 +89,14 @@ public class NewsService {
      * 从缓存或数据库获取新闻（基础信息，不含标签）
      */
     private News getNewsFromCache(String cacheKey, Integer id) {
-        Object cached = redisTemplate.opsForValue().get(cacheKey);
-        if (cached instanceof News news) {
-            return news;
+        // Redis 不可用时降级直查数据库，不影响接口可用性
+        try {
+            Object cached = redisTemplate.opsForValue().get(cacheKey);
+            if (cached instanceof News news) {
+                return news;
+            }
+        } catch (Exception e) {
+            log.warn("Redis 读取失败，降级查库: {}", e.getMessage());
         }
 
         News news = newsMapper.selectById(id);
