@@ -62,9 +62,8 @@ spring:
     serialization:
       write-dates-as-timestamps: false
 
-# MyBatis-Plus 配置（软删除过滤条件显式写在 mapper XML 中；createdAt/updatedAt 由 AuditTimeFillInterceptor 自动填充）
-# 注意：前缀必须是 mybatis-plus，写 mybatis 对 MyBatis-Plus 不生效
-mybatis-plus:
+# MyBatis 配置（原生 MyBatis，软删除过滤条件显式写在 mapper XML 中；createdAt/updatedAt 由 AuditTimeFillInterceptor 自动填充）
+mybatis:
   mapper-locations: classpath*:/mapper/**/*.xml
   configuration:
     map-underscore-to-camel-case: true
@@ -155,10 +154,10 @@ upload:
     image-max-size: 10485760     # 10MB
     video-max-size: 209715200    # 200MB
   oss:
-    endpoint: ${OSS_ENDPOINT:}                 # 如 https://oss-cn-hangzhou.aliyuncs.com
+    endpoint: ${OSS_ENDPOINT:oss-cn-guangzhou.aliyuncs.com}                 # 如 https://oss-cn-hangzhou.aliyuncs.com
     access-key-id: ${OSS_ACCESS_KEY_ID:}
     access-key-secret: ${OSS_ACCESS_KEY_SECRET:}
-    bucket: ${OSS_BUCKET:}
+    bucket: ${OSS_BUCKET:financial-news}
     dir: media                                 # 对象 Key 前缀
     custom-domain: ${OSS_CUSTOM_DOMAIN:}       # 可选自定义/CDN 域名，如 https://cdn.example.com；为空则用 bucket 外网域名
 
