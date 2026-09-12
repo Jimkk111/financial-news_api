@@ -2,8 +2,6 @@ server:
   port: ${SERVER_PORT:3000}
 
 spring:
-  profiles:
-    active: ${SPRING_PROFILES_ACTIVE:dev}
   application:
     name: financial-news-api
 
@@ -35,12 +33,12 @@ spring:
           max-wait: -1ms
       timeout: 3000ms
 
-  # 邮件配置
+  # 邮件配置（本地默认 163，凭据为空时发送时才报错，不阻断启动）
   mail:
-    host: ${MAIL_HOST:smtp.example.com}
-    port: ${MAIL_PORT:587}
-    username: ${MAIL_USERNAME:your_email@example.com}
-    password: ${MAIL_PASSWORD:your_smtp_password}
+    host: ${MAIL_HOST:smtp.163.com}
+    port: ${MAIL_PORT:465}
+    username: ${MAIL_USERNAME:}
+    password: ${MAIL_PASSWORD:}
     properties:
       mail:
         smtp:
@@ -64,8 +62,9 @@ spring:
     serialization:
       write-dates-as-timestamps: false
 
-# MyBatis 配置（软删除过滤条件显式写在 mapper XML 中；createdAt/updatedAt 由 AuditTimeFillInterceptor 自动填充）
-mybatis:
+# MyBatis-Plus 配置（软删除过滤条件显式写在 mapper XML 中；createdAt/updatedAt 由 AuditTimeFillInterceptor 自动填充）
+# 注意：前缀必须是 mybatis-plus，写 mybatis 对 MyBatis-Plus 不生效
+mybatis-plus:
   mapper-locations: classpath*:/mapper/**/*.xml
   configuration:
     map-underscore-to-camel-case: true
@@ -92,13 +91,13 @@ crawler:
       eastmoney:
         enabled: true
         category: 股票
-  # 爬虫 Agent 配置（独立 LLM 实例，用于内容采集工作流）
+  # 爬虫 Agent 配置（旧 LLM 编排链路，默认关闭；本地默认个人端点）
   agent:
     # 未显式启用时不创建爬虫 Agent，避免缺少 key 阻断应用启动
     enabled: ${CRAWLER_AGENT_ENABLED:false}
     api-key: ${CRAWLER_AI_API_KEY:${AI_API_KEY:}}
-    api-base-url: ${CRAWLER_AI_BASE_URL:${AI_BASE_URL:https://api.openai.com/v1}}
-    model: ${CRAWLER_AI_MODEL:gpt-4o-mini}
+    api-base-url: ${CRAWLER_AI_BASE_URL:https://api.xiaomimimo.com/v1}
+    model: ${CRAWLER_AI_MODEL:mimo-v2.5}
     temperature: 0.3
     max-tokens: 4096
     # 单次爬取最大文章数
@@ -124,23 +123,22 @@ springdoc:
       paths-to-match: /api/**
       packages-to-scan: com.financial.news.controller
 
-# JWT 配置（密钥必须通过环境变量注入）
+# JWT 配置（基座带本地默认值，开箱即用；生产由 application-prod.yml 覆盖为强制环境变量）
 jwt:
-  secret: ${JWT_SECRET}
-  expiration: ${JWT_EXPIRATION:604800000}  # 7天，单位毫秒
+  secret: ${JWT_SECRET:dev-jwt-secret-key-local-only-0123456789abcdef!}
+  expiration: ${JWT_EXPIRATION:604800000}
   issuer: ${JWT_ISSUER:cls-financial-news}
   audience: ${JWT_AUDIENCE:cls-financial-news-users}
-  # JWT Cookie 配置
   cookie:
     name: jwt_token
     secure: ${JWT_COOKIE_SECURE:false}       # 生产环境必须为 true
     same-site: Lax
 
-# AI 服务配置（OpenAI 兼容接口）
+# AI 服务配置（OpenAI 兼容接口，本地默认个人端点；生产由 application-prod.yml 覆盖）
 ai:
-  api-key: ${AI_API_KEY:your_ai_api_key}
-  api-base-url: ${AI_BASE_URL:https://api.openai.com/v1}
-  model: ${AI_MODEL:gpt-3.5-turbo}
+  api-key: ${AI_API_KEY:}
+  api-base-url: ${AI_BASE_URL:https://llm-api.net/v1}
+  model: ${AI_MODEL:gpt-5.6-terra}
   max-tokens: ${AI_MAX_TOKENS:2000}
   temperature: ${AI_TEMPERATURE:0.7}
 

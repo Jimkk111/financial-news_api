@@ -107,9 +107,9 @@ services:
       AI_TEMPERATURE: "${AI_TEMPERATURE:-0.7}"
       # 爬虫 Agent（默认关闭；开启需 .env 设 CRAWLER_AGENT_ENABLED=true，key 未设时回退 AI_API_KEY）
       CRAWLER_AGENT_ENABLED: "${CRAWLER_AGENT_ENABLED:-false}"
-      CRAWLER_AI_API_KEY: ${CRAWLER_AI_API_KEY:-}
-      CRAWLER_AI_BASE_URL: ${CRAWLER_AI_BASE_URL:-}
-      CRAWLER_AI_MODEL: ${CRAWLER_AI_MODEL:-}
+      CRAWLER_AI_API_KEY: "${CRAWLER_AI_API_KEY:-}"
+      CRAWLER_AI_BASE_URL: "${CRAWLER_AI_BASE_URL:-https://api.xiaomimimo.com/v1}"
+      CRAWLER_AI_MODEL: "${CRAWLER_AI_MODEL:-mimo-v2.5}"
       # 定时采集（默认关闭；如 .env 设 CRAWLER_INGEST_CRON="0 */30 * * * *" 为每30分钟）
       CRAWLER_INGEST_CRON: "${CRAWLER_INGEST_CRON:--}"
       # 阿里云 OSS（媒体上传：新闻配图/视频；不配置时 /api/media/* 返回 503）
