@@ -19,8 +19,8 @@ spring:
     username: ${MAIL_USERNAME}
     password: ${MAIL_PASSWORD}
 
-# MyBatis-Plus 生产环境关闭 SQL 日志
-mybatis-plus:
+# MyBatis 生产环境关闭 SQL 日志
+mybatis:
   configuration:
     log-impl: org.apache.ibatis.logging.nologging.NoLoggingImpl
 

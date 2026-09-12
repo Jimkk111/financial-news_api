@@ -1,6 +1,5 @@
 package com.financial.news.service.crawler.ingest;
 
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.financial.news.entity.Category;
 import com.financial.news.entity.CrawlAudit;
 import com.financial.news.entity.News;
@@ -134,7 +133,7 @@ public class NewsIngestService {
         String url = canonicalizeUrl(ref.url());
 
         // 1. URL 精确去重（uk_url 唯一索引兜底）
-        if (url != null && newsMapper.selectCount(new LambdaQueryWrapper<News>().eq(News::getUrl, url)) > 0) {
+        if (url != null && newsMapper.countByUrl(url) > 0) {
             stat.dupUrl++;
             audit(runId, connector.sourceKey(), url, ref.title(), CrawlAudit.DUP_URL, "URL已存在", null, ref.publishTime(), started);
             return;
@@ -142,7 +141,7 @@ public class NewsIngestService {
 
         // 2. 标题去重（精确 + 本轮内重复）
         String normalizedTitle = ref.title().replaceAll("\\s+", "");
-        if (newsMapper.selectCount(new LambdaQueryWrapper<News>().eq(News::getTitle, ref.title())) > 0
+        if (newsMapper.countByTitle(ref.title()) > 0
                 || !seenTitles.add(normalizedTitle)) {
             stat.dupTitle++;
             audit(runId, connector.sourceKey(), url, ref.title(), CrawlAudit.DUP_TITLE, "标题已存在", null, ref.publishTime(), started);
@@ -214,11 +213,7 @@ public class NewsIngestService {
 
     /** 最近 N 篇文章的指纹，用于本轮近似去重比对（须为可变列表：新入库的指纹会追加进来） */
     private List<Long> loadRecentFingerprints() {
-        return newsMapper.selectList(new LambdaQueryWrapper<News>()
-                        .select(News::getId, News::getContentFingerprint)
-                        .isNotNull(News::getContentFingerprint)
-                        .orderByDesc(News::getId)
-                        .last("LIMIT " + recentFingerprintScan))
+        return newsMapper.selectRecentFingerprints(recentFingerprintScan)
                 .stream()
                 .map(News::getContentFingerprint)
                 .collect(java.util.stream.Collectors.toCollection(ArrayList::new));
@@ -264,8 +259,7 @@ public class NewsIngestService {
         if (name == null || name.isBlank()) {
             return null;
         }
-        Category existing = categoryMapper.selectOne(
-                new LambdaQueryWrapper<Category>().eq(Category::getName, name).last("LIMIT 1"));
+        Category existing = categoryMapper.selectFirstByName(name);
         if (existing != null) {
             return existing.getId();
         }

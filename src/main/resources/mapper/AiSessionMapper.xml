@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.financial.news.mapper.AiSessionMapper">
+
+    <resultMap id="BaseResultMap" type="com.financial.news.entity.AiSession">
+        <id column="id" property="id"/>
+        <result column="session_id" property="sessionId"/>
+        <result column="user_id" property="userId"/>
+        <result column="title" property="title"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="updated_at" property="updatedAt"/>
+    </resultMap>
+
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO ai_sessions (session_id, user_id, title, created_at, updated_at)
+        VALUES (#{sessionId}, #{userId}, #{title}, #{createdAt}, #{updatedAt})
+    </insert>
+
+    <select id="selectBySessionId" resultMap="BaseResultMap">
+        SELECT id, session_id, user_id, title, created_at, updated_at
+        FROM ai_sessions
+        WHERE session_id = #{sessionId}
+        LIMIT 1
+    </select>
+
+    <select id="selectByUserId" resultMap="BaseResultMap">
+        SELECT id, session_id, user_id, title, created_at, updated_at
+        FROM ai_sessions
+        WHERE user_id = #{userId}
+        ORDER BY updated_at DESC
+    </select>
+
+    <update id="updateById">
+        UPDATE ai_sessions
+        <set>
+            <if test="sessionId != null">session_id = #{sessionId},</if>
+            <if test="userId != null">user_id = #{userId},</if>
+            <if test="title != null">title = #{title},</if>
+            updated_at = #{updatedAt},
+        </set>
+        WHERE id = #{id}
+    </update>
+
+    <delete id="deleteById">
+        DELETE FROM ai_sessions WHERE id = #{id}
+    </delete>
+
+</mapper>

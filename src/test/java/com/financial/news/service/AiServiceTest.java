@@ -50,7 +50,7 @@ class AiServiceTest {
                 .sessionId(SESSION_ID)
                 .userId(USER_ID)
                 .build();
-        when(aiSessionMapper.selectOne(any())).thenReturn(session);
+        when(aiSessionMapper.selectBySessionId(SESSION_ID)).thenReturn(session);
         aiService = org.mockito.Mockito.spy(new AiService(aiSessionMapper, aiMessageMapper));
     }
 

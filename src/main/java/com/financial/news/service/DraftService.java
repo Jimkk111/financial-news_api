@@ -1,7 +1,5 @@
 package com.financial.news.service;
 
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.financial.news.common.BusinessException;
 import com.financial.news.common.ErrorCode;
 import com.financial.news.dto.request.DraftCreateRequest;
@@ -10,7 +8,6 @@ import com.financial.news.entity.Draft;
 import com.financial.news.entity.DraftTag;
 import com.financial.news.entity.News;
 import com.financial.news.entity.NewsTag;
-import com.financial.news.entity.Tag;
 import com.financial.news.mapper.DraftMapper;
 import com.financial.news.mapper.DraftTagMapper;
 import com.financial.news.mapper.NewsMapper;
@@ -38,7 +35,7 @@ import java.util.stream.Collectors;
 @Slf4j
 @Service
 @RequiredArgsConstructor
-public class DraftService extends ServiceImpl<DraftMapper, Draft> {
+public class DraftService {
 
     private final DraftMapper draftMapper;
     private final NewsMapper newsMapper;
@@ -50,13 +47,7 @@ public class DraftService extends ServiceImpl<DraftMapper, Draft> {
      * 获取当前用户的草稿列表（按更新时间倒序，只返回 status='draft'）
      */
     public List<Draft> listDrafts(Integer userId) {
-        LambdaQueryWrapper<Draft> wrapper = new LambdaQueryWrapper<Draft>()
-                .eq(Draft::getUserId, userId)
-                .eq(Draft::getStatus, "draft")
-                .orderByDesc(Draft::getUpdatedAt);
-        // 列表不携带块级 JSON 正文，减小响应体积
-        wrapper.select(Draft.class, info -> !info.getColumn().equals("content_json"));
-        List<Draft> drafts = draftMapper.selectList(wrapper);
+        List<Draft> drafts = draftMapper.selectListByUser(userId);
         fillDraftTags(drafts);
         return drafts;
     }
@@ -179,7 +170,7 @@ public class DraftService extends ServiceImpl<DraftMapper, Draft> {
     private void validateTagIds(List<Integer> tagIds) {
         if (tagIds == null || tagIds.isEmpty()) return;
         List<Integer> distinctIds = tagIds.stream().distinct().toList();
-        if (tagMapper.selectBatchIds(distinctIds).size() != distinctIds.size()) {
+        if (tagMapper.selectByIds(distinctIds).size() != distinctIds.size()) {
             throw new BusinessException(ErrorCode.BAD_REQUEST, "包含不存在的标签");
         }
     }
@@ -199,7 +190,7 @@ public class DraftService extends ServiceImpl<DraftMapper, Draft> {
      * 全量替换草稿标签关联
      */
     private void replaceDraftTags(String draftId, List<Integer> tagIds) {
-        draftTagMapper.delete(new LambdaQueryWrapper<DraftTag>().eq(DraftTag::getDraftId, draftId));
+        draftTagMapper.deleteByDraftId(draftId);
         saveDraftTags(draftId, tagIds);
     }
 
@@ -207,7 +198,7 @@ public class DraftService extends ServiceImpl<DraftMapper, Draft> {
      * 获取草稿关联的标签 ID 列表
      */
     private List<Integer> getDraftTags(String draftId) {
-        return draftTagMapper.selectList(new LambdaQueryWrapper<DraftTag>().eq(DraftTag::getDraftId, draftId))
+        return draftTagMapper.selectByDraftId(draftId)
                 .stream().map(DraftTag::getTagId).toList();
     }
 
@@ -240,8 +231,7 @@ public class DraftService extends ServiceImpl<DraftMapper, Draft> {
     private void fillDraftTags(List<Draft> drafts) {
         if (drafts.isEmpty()) return;
         List<String> draftIds = drafts.stream().map(Draft::getId).toList();
-        List<DraftTag> relations = draftTagMapper.selectList(
-                new LambdaQueryWrapper<DraftTag>().in(DraftTag::getDraftId, draftIds));
+        List<DraftTag> relations = draftTagMapper.selectByDraftIds(draftIds);
         Map<String, List<Integer>> tagMap = relations.stream().collect(Collectors.groupingBy(
                 DraftTag::getDraftId, Collectors.mapping(DraftTag::getTagId, Collectors.toList())));
         drafts.forEach(d -> d.setTags(tagMap.getOrDefault(d.getId(), List.of())));

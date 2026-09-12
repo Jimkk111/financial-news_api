@@ -1,9 +1,7 @@
 package com.financial.news.entity;
 
-import com.baomidou.mybatisplus.annotation.*;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.financial.news.model.content.Block;
-import com.financial.news.utils.BlockListTypeHandler;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -14,6 +12,8 @@ import java.util.List;
 
 /**
  * 新闻实体
+ * <p>content_json 列通过 BlockListTypeHandler 映射（见 mapper/NewsMapper.xml）；
+ * deleted_at 为软删除标记，过滤条件由各查询 SQL 显式携带</p>
  *
  * @author financial-news
  * @since 1.0.0
@@ -22,10 +22,8 @@ import java.util.List;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-@TableName(value = "news", autoResultMap = true)
 public class News {
 
-    @TableId(type = IdType.AUTO)
     private Integer id;
 
     /** 标题 */
@@ -39,7 +37,6 @@ public class News {
 
     /** 正文内容（块级 JSON，新契约；列表查询排除列后为 null 不输出） */
     @JsonInclude(JsonInclude.Include.NON_NULL)
-    @TableField(typeHandler = BlockListTypeHandler.class)
     private List<Block> contentJson;
 
     /** 发布时间 */
@@ -69,12 +66,10 @@ public class News {
     /** 发布用户 ID */
     private Integer userId;
 
-    @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createdAt;
 
-    @TableField(fill = FieldFill.INSERT_UPDATE)
     private LocalDateTime updatedAt;
 
-    @TableLogic
+    /** 软删除时间，非 null 即已删除 */
     private LocalDateTime deletedAt;
 }

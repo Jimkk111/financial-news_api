@@ -1,6 +1,5 @@
 package com.financial.news.controller;
 
-import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.financial.news.common.Result;
 import com.financial.news.dto.response.NewsDetailVO;
 import com.financial.news.entity.Category;
@@ -34,8 +33,8 @@ public class NewsController {
                                @RequestParam(defaultValue = "newest") String sort,
                                @RequestParam(defaultValue = "1") int page,
                                @RequestParam(defaultValue = "10") int pageSize) {
-        Page<News> result = newsService.listNews(categoryId, sort, page, pageSize);
-        return Result.ok(newsService.toPageResult(result));
+        Result.PageResult<News> result = newsService.listNews(categoryId, sort, page, pageSize);
+        return Result.ok(result);
     }
 
     @Operation(summary = "获取新闻详情")
@@ -84,7 +83,7 @@ public class NewsController {
     public Result<Result.PageResult<News>> searchNews(@RequestParam String keyword,
                                  @RequestParam(defaultValue = "1") int page,
                                  @RequestParam(defaultValue = "10") int pageSize) {
-        Page<News> result = newsService.searchNews(keyword, page, pageSize);
-        return Result.ok(newsService.toPageResult(result));
+        Result.PageResult<News> result = newsService.searchNews(keyword, page, pageSize);
+        return Result.ok(result);
     }
 }

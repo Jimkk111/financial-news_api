@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.financial.news.mapper.DraftTagMapper">
+
+    <resultMap id="BaseResultMap" type="com.financial.news.entity.DraftTag">
+        <id column="id" property="id"/>
+        <result column="draft_id" property="draftId"/>
+        <result column="tag_id" property="tagId"/>
+        <result column="created_at" property="createdAt"/>
+    </resultMap>
+
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO draft_tags (draft_id, tag_id, created_at)
+        VALUES (#{draftId}, #{tagId}, #{createdAt})
+    </insert>
+
+    <select id="selectByDraftId" resultMap="BaseResultMap">
+        SELECT id, draft_id, tag_id, created_at
+        FROM draft_tags
+        WHERE draft_id = #{draftId}
+        ORDER BY id
+    </select>
+
+    <select id="selectByDraftIds" resultMap="BaseResultMap">
+        SELECT id, draft_id, tag_id, created_at
+        FROM draft_tags
+        WHERE draft_id IN
+        <foreach collection="draftIds" item="draftId" open="(" separator="," close=")">#{draftId}</foreach>
+    </select>
+
+    <delete id="deleteByDraftId">
+        DELETE FROM draft_tags WHERE draft_id = #{draftId}
+    </delete>
+
+</mapper>

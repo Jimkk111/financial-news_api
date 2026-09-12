@@ -1,6 +1,5 @@
 package com.financial.news.entity;
 
-import com.baomidou.mybatisplus.annotation.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -10,6 +9,7 @@ import java.time.LocalDateTime;
 
 /**
  * 用户实体
+ * <p>deleted_at 为软删除标记，过滤条件由各查询 SQL 显式携带</p>
  *
  * @author financial-news
  * @since 1.0.0
@@ -18,11 +18,9 @@ import java.time.LocalDateTime;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-@TableName("users")
 public class User {
 
     /** 内部主键 */
-    @TableId(type = IdType.AUTO)
     private Integer id;
 
     /** 用户公开 ID，格式 user-xxxxxxxx */
@@ -44,14 +42,11 @@ public class User {
     private String avatar;
 
     /** 创建时间 */
-    @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createdAt;
 
     /** 更新时间 */
-    @TableField(fill = FieldFill.INSERT_UPDATE)
     private LocalDateTime updatedAt;
 
-    /** 软删除时间 */
-    @TableLogic
+    /** 软删除时间，非 null 即已删除 */
     private LocalDateTime deletedAt;
 }

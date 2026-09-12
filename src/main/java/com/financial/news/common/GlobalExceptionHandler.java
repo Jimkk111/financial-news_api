@@ -112,6 +112,16 @@ public class GlobalExceptionHandler {
     }
 
     /**
+     * 处理授权拒绝（已登录但权限不足）
+     */
+    @ExceptionHandler(org.springframework.security.access.AccessDeniedException.class)
+    public ResponseEntity<Result<Void>> handleAccessDeniedException(org.springframework.security.access.AccessDeniedException ex, HttpServletRequest request) {
+        log.warn("[权限不足] URI:{}, Message:{}", request.getRequestURI(), ex.getMessage());
+        return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                .body(Result.fail(ErrorCode.FORBIDDEN));
+    }
+
+    /**
      * 处理文件上传过大
      */
     @ExceptionHandler(MaxUploadSizeExceededException.class)

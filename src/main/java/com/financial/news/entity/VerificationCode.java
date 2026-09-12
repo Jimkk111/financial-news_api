@@ -1,6 +1,5 @@
 package com.financial.news.entity;
 
-import com.baomidou.mybatisplus.annotation.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -18,10 +17,8 @@ import java.time.LocalDateTime;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-@TableName("verification_codes")
 public class VerificationCode {
 
-    @TableId(type = IdType.AUTO)
     private Integer id;
 
     /** 邮箱 */
@@ -36,6 +33,5 @@ public class VerificationCode {
     /** 过期时间（创建后 5 分钟） */
     private LocalDateTime expiresAt;
 
-    @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createdAt;
 }

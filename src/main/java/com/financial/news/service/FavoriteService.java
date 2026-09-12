@@ -1,14 +1,10 @@
 package com.financial.news.service;
 
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.baomidou.mybatisplus.core.metadata.IPage;
-import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
-import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.financial.news.common.BusinessException;
 import com.financial.news.common.ErrorCode;
+import com.financial.news.common.Result;
 import com.financial.news.dto.response.FavoriteVO;
 import com.financial.news.entity.Favorite;
-import com.financial.news.entity.News;
 import com.financial.news.mapper.FavoriteMapper;
 import com.financial.news.mapper.NewsMapper;
 import lombok.RequiredArgsConstructor;
@@ -16,6 +12,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.util.List;
 
 /**
  * 收藏服务
@@ -27,17 +25,23 @@ import org.springframework.transaction.annotation.Transactional;
 @Slf4j
 @Service
 @RequiredArgsConstructor
-public class FavoriteService extends ServiceImpl<FavoriteMapper, Favorite> {
+public class FavoriteService {
 
     private final FavoriteMapper favoriteMapper;
     private final NewsMapper newsMapper;
 
+    private static final int MAX_PAGE_SIZE = 50;
+
     /**
      * 获取收藏列表（分页，联表查询新闻信息）
      */
-    public IPage<FavoriteVO> listFavorites(Integer userId, int page, int pageSize) {
-        Page<FavoriteVO> p = new Page<>(page, Math.min(pageSize, 50));
-        return favoriteMapper.selectFavoriteNewsPage(p, userId);
+    public Result.PageResult<FavoriteVO> listFavorites(Integer userId, int page, int pageSize) {
+        page = Math.max(page, 1);
+        pageSize = Math.min(pageSize, MAX_PAGE_SIZE);
+        long total = favoriteMapper.countByUser(userId);
+        List<FavoriteVO> records = total == 0 ? List.of()
+                : favoriteMapper.selectFavoriteNewsPage(userId, (page - 1) * pageSize, pageSize);
+        return new Result.PageResult<>(records, total, page, pageSize);
     }
 
     /**
@@ -45,7 +49,7 @@ public class FavoriteService extends ServiceImpl<FavoriteMapper, Favorite> {
      */
     @Transactional
     public void addFavorite(Integer userId, Integer newsId) {
-        if (!newsMapper.exists(new LambdaQueryWrapper<News>().eq(News::getId, newsId))) {
+        if (newsMapper.countById(newsId) == 0) {
             throw new BusinessException(ErrorCode.NEWS_NOT_FOUND);
         }
         try {
@@ -59,8 +63,7 @@ public class FavoriteService extends ServiceImpl<FavoriteMapper, Favorite> {
      * 取消收藏
      */
     public void removeFavorite(Integer userId, Integer newsId) {
-        Favorite fav = favoriteMapper.selectOne(new LambdaQueryWrapper<Favorite>()
-                .eq(Favorite::getUserId, userId).eq(Favorite::getNewsId, newsId));
+        Favorite fav = favoriteMapper.selectByUserAndNews(userId, newsId);
         if (fav == null) {
             throw new BusinessException(ErrorCode.FAVORITE_NOT_FOUND);
         }
@@ -71,7 +74,6 @@ public class FavoriteService extends ServiceImpl<FavoriteMapper, Favorite> {
      * 检查是否已收藏
      */
     public boolean isFavorite(Integer userId, Integer newsId) {
-        return favoriteMapper.exists(new LambdaQueryWrapper<Favorite>()
-                .eq(Favorite::getUserId, userId).eq(Favorite::getNewsId, newsId));
+        return favoriteMapper.countByUserAndNews(userId, newsId) > 0;
     }
 }

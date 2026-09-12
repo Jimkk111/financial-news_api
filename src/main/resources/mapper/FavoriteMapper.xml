@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.financial.news.mapper.FavoriteMapper">
+
+    <resultMap id="BaseResultMap" type="com.financial.news.entity.Favorite">
+        <id column="id" property="id"/>
+        <result column="user_id" property="userId"/>
+        <result column="news_id" property="newsId"/>
+        <result column="created_at" property="createdAt"/>
+    </resultMap>
+
+    <resultMap id="FavoriteVOResultMap" type="com.financial.news.dto.response.FavoriteVO">
+        <result column="news_id" property="newsId"/>
+        <result column="title" property="title"/>
+        <result column="summary" property="summary"/>
+        <result column="source" property="source"/>
+        <result column="publish_time" property="publishTime"/>
+        <result column="views" property="views"/>
+        <result column="has_image" property="hasImage"/>
+        <result column="image_url" property="imageUrl"/>
+        <result column="category_id" property="categoryId"/>
+        <result column="favorited_at" property="favoritedAt"/>
+    </resultMap>
+
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO favorites (user_id, news_id, created_at)
+        VALUES (#{userId}, #{newsId}, #{createdAt})
+    </insert>
+
+    <select id="selectByUserAndNews" resultMap="BaseResultMap">
+        SELECT id, user_id, news_id, created_at
+        FROM favorites
+        WHERE user_id = #{userId} AND news_id = #{newsId}
+        LIMIT 1
+    </select>
+
+    <delete id="deleteById">
+        DELETE FROM favorites WHERE id = #{id}
+    </delete>
+
+    <select id="countByUserAndNews" resultType="long">
+        SELECT COUNT(*)
+        FROM favorites
+        WHERE user_id = #{userId} AND news_id = #{newsId}
+    </select>
+
+    <select id="selectFavoriteNewsPage" resultMap="FavoriteVOResultMap">
+        SELECT n.id AS news_id, n.title, n.summary, n.source, n.publish_time,
+               n.views, n.has_image, n.image_url, n.category_id, f.created_at AS favorited_at
+        FROM favorites f
+        JOIN news n ON f.news_id = n.id
+        WHERE f.user_id = #{userId} AND n.deleted_at IS NULL
+        ORDER BY f.created_at DESC
+        LIMIT #{offset}, #{limit}
+    </select>
+
+    <select id="countByUser" resultType="long">
+        SELECT COUNT(*)
+        FROM favorites f
+        JOIN news n ON f.news_id = n.id
+        WHERE f.user_id = #{userId} AND n.deleted_at IS NULL
+    </select>
+
+</mapper>

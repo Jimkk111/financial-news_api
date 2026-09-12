@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.financial.news.mapper.UserMapper">
+
+    <resultMap id="BaseResultMap" type="com.financial.news.entity.User">
+        <id column="id" property="id"/>
+        <result column="uid" property="uid"/>
+        <result column="display_id" property="displayId"/>
+        <result column="username" property="username"/>
+        <result column="email" property="email"/>
+        <result column="password_hash" property="passwordHash"/>
+        <result column="avatar" property="avatar"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="updated_at" property="updatedAt"/>
+        <result column="deleted_at" property="deletedAt"/>
+    </resultMap>
+
+    <sql id="allColumns">
+        id, uid, display_id, username, email, password_hash, avatar, created_at, updated_at, deleted_at
+    </sql>
+
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO users (uid, display_id, username, email, password_hash, avatar, created_at, updated_at)
+        VALUES (#{uid}, #{displayId}, #{username}, #{email}, #{passwordHash}, #{avatar}, #{createdAt}, #{updatedAt})
+    </insert>
+
+    <select id="selectById" resultMap="BaseResultMap">
+        SELECT <include refid="allColumns"/>
+        FROM users
+        WHERE id = #{id} AND deleted_at IS NULL
+    </select>
+
+    <select id="selectByUsernameOrEmail" resultMap="BaseResultMap">
+        SELECT <include refid="allColumns"/>
+        FROM users
+        WHERE deleted_at IS NULL AND (username = #{account} OR email = #{account})
+        LIMIT 1
+    </select>
+
+    <select id="selectByUsername" resultMap="BaseResultMap">
+        SELECT <include refid="allColumns"/>
+        FROM users
+        WHERE username = #{username} AND deleted_at IS NULL
+        LIMIT 1
+    </select>
+
+    <select id="countByUsername" resultType="long">
+        SELECT COUNT(*)
+        FROM users
+        WHERE username = #{username} AND deleted_at IS NULL
+    </select>
+
+    <select id="countByEmail" resultType="long">
+        SELECT COUNT(*)
+        FROM users
+        WHERE email = #{email} AND deleted_at IS NULL
+    </select>
+
+    <update id="updateById">
+        UPDATE users
+        <set>
+            <if test="uid != null">uid = #{uid},</if>
+            <if test="displayId != null">display_id = #{displayId},</if>
+            <if test="username != null">username = #{username},</if>
+            <if test="email != null">email = #{email},</if>
+            <if test="passwordHash != null">password_hash = #{passwordHash},</if>
+            <if test="avatar != null">avatar = #{avatar},</if>
+            updated_at = #{updatedAt},
+        </set>
+        WHERE id = #{id} AND deleted_at IS NULL
+    </update>
+
+</mapper>

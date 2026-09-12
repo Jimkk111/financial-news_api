@@ -1,12 +1,10 @@
 package com.financial.news.controller;
 
-import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.financial.news.common.Result;
 import com.financial.news.dto.request.UpdateUserRequest;
 import com.financial.news.dto.response.UserResponse;
 import com.financial.news.entity.News;
 import com.financial.news.security.JwtUserDetails;
-import com.financial.news.service.NewsService;
 import com.financial.news.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -29,7 +27,6 @@ import java.util.Map;
 public class UserController {
 
     private final UserService userService;
-    private final NewsService newsService;
 
     @Operation(summary = "获取当前用户信息")
     @GetMapping("/me")
@@ -58,7 +55,6 @@ public class UserController {
     public Result<Result.PageResult<News>> getUserNews(@RequestParam(defaultValue = "1") int page,
                                   @RequestParam(defaultValue = "10") int pageSize) {
         JwtUserDetails user = JwtUserDetails.getCurrentUser();
-        Page<News> result = userService.getUserNews(user.getUserId(), page, pageSize);
-        return Result.ok(newsService.toPageResult(result));
+        return Result.ok(userService.getUserNews(user.getUserId(), page, pageSize));
     }
 }

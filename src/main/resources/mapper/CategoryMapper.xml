@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.financial.news.mapper.CategoryMapper">
+
+    <resultMap id="BaseResultMap" type="com.financial.news.entity.Category">
+        <id column="id" property="id"/>
+        <result column="name" property="name"/>
+        <result column="created_at" property="createdAt"/>
+    </resultMap>
+
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO categories (name, created_at)
+        VALUES (#{name}, #{createdAt})
+    </insert>
+
+    <select id="selectById" resultMap="BaseResultMap">
+        SELECT id, name, created_at
+        FROM categories
+        WHERE id = #{id}
+    </select>
+
+    <select id="selectListAll" resultMap="BaseResultMap">
+        SELECT id, name, created_at
+        FROM categories
+        ORDER BY id
+    </select>
+
+    <select id="selectFirstByName" resultMap="BaseResultMap">
+        SELECT id, name, created_at
+        FROM categories
+        WHERE name = #{name}
+        ORDER BY id
+        LIMIT 1
+    </select>
+
+</mapper>

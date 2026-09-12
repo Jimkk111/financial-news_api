@@ -9,7 +9,7 @@
 ## 技术栈
 
 - Maven JAR 项目；Spring Boot `3.4.4`；Java `23`（`pom.xml:6-26`）。
-- Spring Web、Validation、Security、Mail、Data Redis；MySQL Connector/J；MyBatis-Plus `3.5.5`（`pom.xml:29-72`）。
+- Spring Web、Validation、Security、Mail、Data Redis；MySQL Connector/J；MyBatis（mybatis-spring-boot-starter `3.0.4`，mapper XML 位于 `resources/mapper/`）（`pom.xml:29-72`）。
 - Knife4j/OpenAPI、JJWT `0.12.3`、Hutool、jsoup、LangChain4j `0.35.0`、Lombok（`pom.xml:74-147`）。
 - 应用入口：`src/main/java/com/financial/news/FinancialNewsApplication.java:12-18`；启用 Spring Boot，并扫描 `com.financial.news.mapper`。
 
@@ -18,11 +18,11 @@
 ```text
 src/main/java/com/financial/news/
   common/       统一响应、错误码、异常处理
-  config/       Spring、Security、Redis、MyBatis-Plus、OpenAPI、爬虫 Agent 配置
+  config/       Spring、Security、Redis、MyBatis（自动填充拦截器）、OpenAPI、爬虫 Agent 配置
   controller/   REST 控制器
   dto/          请求 DTO / 响应 VO
   entity/       数据库实体
-  mapper/       MyBatis-Plus Mapper
+  mapper/       MyBatis Mapper 接口（SQL 在 resources/mapper/*.xml）
   model/content/块级内容模型
   security/     JWT 过滤器、Token、用户详情
   service/      业务服务
@@ -32,6 +32,7 @@ src/main/resources/
   application.yml             通用配置（默认 dev、端口）
   application-dev.yml         本地配置，已忽略且可能含敏感值
   application-prod.yml        生产环境变量配置
+  mapper/*.xml                MyBatis SQL 映射（软删除过滤条件显式写在 SQL 中）
   db/init.sql                 数据库初始化 schema
 ```
 
@@ -94,7 +95,7 @@ docker compose down -v   # 会删除数据卷，谨慎执行
 
 `src/main/resources/db/init.sql:1-180` 定义 users、categories、tags、news、news_tags、drafts、draft_tags、favorites、history、ai_sessions、ai_messages、verification_codes 等表及关系。`news.content` 保留旧 HTML，`news.content_json` 保存块级内容（`init.sql:57-101`）。
 
-`service/NewsService.java:22-199` 使用 MyBatis-Plus 和 Redis：列表/搜索避免返回 `content_json`，详情读取缓存并在需要时把旧 HTML 转为 Block JSON，浏览量变更会清理详情缓存，分类/标签有独立缓存。
+`service/NewsService.java` 使用 MyBatis（mapper XML）和 Redis：列表/搜索避免返回 `content_json`，详情读取缓存并在需要时把旧 HTML 转为 Block JSON，浏览量变更会清理详情缓存，分类/标签有独立缓存。软删除（news/users 的 `deleted_at`）过滤条件显式写在各 mapper XML 的 SQL 中；`createdAt/updatedAt` 由 `config/AuditTimeFillInterceptor` 在 INSERT/UPDATE 时自动填充。
 
 ## 当前爬虫架构
 

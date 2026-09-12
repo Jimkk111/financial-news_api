@@ -1,10 +1,5 @@
 package com.financial.news.entity;
 
-import com.baomidou.mybatisplus.annotation.FieldFill;
-import com.baomidou.mybatisplus.annotation.IdType;
-import com.baomidou.mybatisplus.annotation.TableField;
-import com.baomidou.mybatisplus.annotation.TableId;
-import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -23,7 +18,6 @@ import java.time.LocalDateTime;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-@TableName("crawl_audit")
 public class CrawlAudit {
 
     public static final String SAVED = "SAVED";
@@ -33,7 +27,6 @@ public class CrawlAudit {
     public static final String REJECTED = "REJECTED";
     public static final String FAILED = "FAILED";
 
-    @TableId(type = IdType.AUTO)
     private Integer id;
 
     /** 采集批次ID */
@@ -63,6 +56,5 @@ public class CrawlAudit {
     /** 单篇处理耗时（毫秒） */
     private Integer durationMs;
 
-    @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createdAt;
 }

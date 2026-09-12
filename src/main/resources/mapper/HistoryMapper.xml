@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.financial.news.mapper.HistoryMapper">
+
+    <resultMap id="HistoryVOResultMap" type="com.financial.news.dto.response.HistoryVO">
+        <result column="news_id" property="newsId"/>
+        <result column="title" property="title"/>
+        <result column="summary" property="summary"/>
+        <result column="source" property="source"/>
+        <result column="publish_time" property="publishTime"/>
+        <result column="views" property="views"/>
+        <result column="has_image" property="hasImage"/>
+        <result column="image_url" property="imageUrl"/>
+        <result column="category_id" property="categoryId"/>
+        <result column="viewed_at" property="viewedAt"/>
+    </resultMap>
+
+    <select id="selectHistoryNewsPage" resultMap="HistoryVOResultMap">
+        SELECT n.id AS news_id, n.title, n.summary, n.source, n.publish_time,
+               n.views, n.has_image, n.image_url, n.category_id, h.viewed_at
+        FROM history h
+        JOIN news n ON h.news_id = n.id
+        WHERE h.user_id = #{userId} AND n.deleted_at IS NULL
+        ORDER BY h.viewed_at DESC
+        LIMIT #{offset}, #{limit}
+    </select>
+
+    <select id="countByUser" resultType="long">
+        SELECT COUNT(*)
+        FROM history h
+        JOIN news n ON h.news_id = n.id
+        WHERE h.user_id = #{userId} AND n.deleted_at IS NULL
+    </select>
+
+    <delete id="deleteByUserId">
+        DELETE FROM history WHERE user_id = #{userId}
+    </delete>
+
+</mapper>

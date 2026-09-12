@@ -1,6 +1,5 @@
 package com.financial.news.service.crawler;
 
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.financial.news.entity.Category;
@@ -479,8 +478,7 @@ public class CrawlerTools {
     public String checkNewsExists(String title) {
         log.info("Agent 调用 checkNewsExists: {}", title);
         try {
-            News existing = newsMapper.selectOne(
-                    new LambdaQueryWrapper<News>().eq(News::getTitle, title).last("LIMIT 1"));
+            News existing = newsMapper.selectFirstByTitle(title);
             return "exists:" + (existing != null);
         } catch (Exception e) {
             return "exists:false";
@@ -496,7 +494,7 @@ public class CrawlerTools {
     public String listCategories() {
         log.info("Agent 调用 listCategories");
         try {
-            List<Category> categories = categoryMapper.selectList(null);
+            List<Category> categories = categoryMapper.selectListAll();
             List<Map<String, Object>> result = new ArrayList<>();
             for (Category c : categories) {
                 Map<String, Object> map = new LinkedHashMap<>();
@@ -519,7 +517,7 @@ public class CrawlerTools {
     public String listTags() {
         log.info("Agent 调用 listTags");
         try {
-            List<Tag> tags = tagMapper.selectList(null);
+            List<Tag> tags = tagMapper.selectListAll();
             List<Map<String, Object>> result = new ArrayList<>();
             for (Tag t : tags) {
                 Map<String, Object> map = new LinkedHashMap<>();
@@ -543,8 +541,7 @@ public class CrawlerTools {
     public String createCategory(String categoryName) {
         log.info("Agent 调用 createCategory: {}", categoryName);
         try {
-            Category existing = categoryMapper.selectOne(
-                    new LambdaQueryWrapper<Category>().eq(Category::getName, categoryName.trim()).last("LIMIT 1"));
+            Category existing = categoryMapper.selectFirstByName(categoryName.trim());
             if (existing != null) return "exists:" + existing.getId();
             Integer id = findOrCreateCategory(categoryName.trim());
             return "created:" + id;
@@ -655,7 +652,7 @@ public class CrawlerTools {
             for (String url : urls) {
                 String canonical = canonicalizeUrlValue(url);
                 if (canonical == null) continue;
-                existing += newsMapper.selectCount(new LambdaQueryWrapper<News>().eq(News::getUrl, canonical)) > 0 ? 1 : 0;
+                existing += newsMapper.countByUrl(canonical) > 0 ? 1 : 0;
             }
             return String.format("{\"totalUrls\":%d,\"existingUrls\":%d,\"missingUrls\":%d}", urls.size(), existing, urls.size() - existing);
         } catch (Exception e) {
@@ -871,8 +868,7 @@ public class CrawlerTools {
 
 
     private Integer findOrCreateCategory(String name) {
-        Category existing = categoryMapper.selectOne(
-                new LambdaQueryWrapper<Category>().eq(Category::getName, name));
+        Category existing = categoryMapper.selectFirstByName(name);
         if (existing != null) return existing.getId();
 
         Category category = Category.builder().name(name).build();
@@ -885,8 +881,7 @@ public class CrawlerTools {
      * 查找或创建标签
      */
     private Integer findOrCreateTag(String name) {
-        Tag existing = tagMapper.selectOne(
-                new LambdaQueryWrapper<Tag>().eq(Tag::getName, name));
+        Tag existing = tagMapper.selectFirstByName(name);
         if (existing != null) return existing.getId();
 
         Tag tag = Tag.builder().name(name).build();

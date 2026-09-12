@@ -64,15 +64,9 @@ spring:
     serialization:
       write-dates-as-timestamps: false
 
-# MyBatis-Plus 配置
-mybatis-plus:
+# MyBatis 配置（软删除过滤条件显式写在 mapper XML 中；createdAt/updatedAt 由 AuditTimeFillInterceptor 自动填充）
+mybatis:
   mapper-locations: classpath*:/mapper/**/*.xml
-  global-config:
-    db-config:
-      id-type: auto
-      logic-delete-field: deletedAt
-      logic-delete-value: "NOW()"
-      logic-not-delete-value: "NULL"
   configuration:
     map-underscore-to-camel-case: true
     log-impl: ${MYBATIS_LOG_IMPL:org.apache.ibatis.logging.stdout.StdOutImpl}

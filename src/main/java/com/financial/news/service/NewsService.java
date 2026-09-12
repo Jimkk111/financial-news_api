@@ -1,8 +1,5 @@
 package com.financial.news.service;
 
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
-import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.financial.news.common.BusinessException;
 import com.financial.news.common.ErrorCode;
 import com.financial.news.common.Result;
@@ -15,7 +12,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.concurrent.Executors;
@@ -32,7 +28,7 @@ import java.util.concurrent.TimeUnit;
 @Slf4j
 @Service
 @RequiredArgsConstructor
-public class NewsService extends ServiceImpl<NewsMapper, News> {
+public class NewsService {
 
     private final NewsMapper newsMapper;
     private final CategoryMapper categoryMapper;
@@ -47,6 +43,7 @@ public class NewsService extends ServiceImpl<NewsMapper, News> {
     private static final long DETAIL_TTL = 600;   // 10分钟
     private static final long LIST_TTL = 3600;    // 1小时
     private static final long VIEW_DEDUP_TTL = 3600; // 同一访问者 1 小时内浏览去重
+    private static final int MAX_PAGE_SIZE = 50;
 
     /** 缓存延迟双删用的调度器 */
     private final ScheduledExecutorService cacheEvictScheduler =
@@ -59,23 +56,13 @@ public class NewsService extends ServiceImpl<NewsMapper, News> {
     /**
      * 获取新闻列表（分页）
      */
-    public Page<News> listNews(Integer categoryId, String sort, int page, int pageSize) {
-        pageSize = Math.min(pageSize, 50);
-        Page<News> pageParam = new Page<>(page, pageSize);
-        LambdaQueryWrapper<News> wrapper = new LambdaQueryWrapper<>();
-
-        if (categoryId != null) {
-            wrapper.eq(News::getCategoryId, categoryId);
-        }
-        if ("popular".equals(sort)) {
-            wrapper.orderByDesc(News::getViews);
-        } else {
-            wrapper.orderByDesc(News::getPublishTime);
-        }
-        // 列表不携带块级 JSON 正文，减小响应体积
-        wrapper.select(News.class, info -> !info.getColumn().equals("content_json"));
-
-        return newsMapper.selectPage(pageParam, wrapper);
+    public Result.PageResult<News> listNews(Integer categoryId, String sort, int page, int pageSize) {
+        page = Math.max(page, 1);
+        pageSize = Math.min(pageSize, MAX_PAGE_SIZE);
+        long total = newsMapper.countListPage(categoryId);
+        List<News> records = total == 0 ? List.of()
+                : newsMapper.selectListPage(categoryId, "popular".equals(sort), (page - 1) * pageSize, pageSize);
+        return new Result.PageResult<>(records, total, page, pageSize);
     }
 
     /**
@@ -182,7 +169,7 @@ public class NewsService extends ServiceImpl<NewsMapper, News> {
             return (List<Category>) cached;
         }
 
-        List<Category> categories = categoryMapper.selectList(null);
+        List<Category> categories = categoryMapper.selectListAll();
         try {
             redisTemplate.opsForValue().set(CACHE_NEWS_CATEGORIES, categories, LIST_TTL, TimeUnit.SECONDS);
         } catch (Exception e) {
@@ -205,7 +192,7 @@ public class NewsService extends ServiceImpl<NewsMapper, News> {
             return (List<Tag>) cached;
         }
 
-        List<Tag> tags = tagMapper.selectList(null);
+        List<Tag> tags = tagMapper.selectListAll();
         try {
             redisTemplate.opsForValue().set(CACHE_NEWS_TAGS, tags, LIST_TTL, TimeUnit.SECONDS);
         } catch (Exception e) {
@@ -217,37 +204,22 @@ public class NewsService extends ServiceImpl<NewsMapper, News> {
     /**
      * 搜索新闻（按标题和摘要模糊搜索）
      */
-    public Page<News> searchNews(String keyword, int page, int pageSize) {
-        pageSize = Math.min(pageSize, 50);
-        Page<News> pageParam = new Page<>(page, pageSize);
-        LambdaQueryWrapper<News> wrapper = new LambdaQueryWrapper<News>()
-                .and(w -> w.like(News::getTitle, keyword).or().like(News::getSummary, keyword))
-                .orderByDesc(News::getPublishTime);
-        // 搜索列表不携带块级 JSON 正文，减小响应体积
-        wrapper.select(News.class, info -> !info.getColumn().equals("content_json"));
-        return newsMapper.selectPage(pageParam, wrapper);
+    public Result.PageResult<News> searchNews(String keyword, int page, int pageSize) {
+        page = Math.max(page, 1);
+        pageSize = Math.min(pageSize, MAX_PAGE_SIZE);
+        long total = newsMapper.countSearch(keyword);
+        List<News> records = total == 0 ? List.of()
+                : newsMapper.searchPage(keyword, (page - 1) * pageSize, pageSize);
+        return new Result.PageResult<>(records, total, page, pageSize);
     }
 
     /**
      * 获取新闻关联的标签
      */
     public List<Tag> getNewsTags(Integer newsId) {
-        List<NewsTag> newsTags = newsTagMapper.selectList(
-                new LambdaQueryWrapper<NewsTag>().eq(NewsTag::getNewsId, newsId));
+        List<NewsTag> newsTags = newsTagMapper.selectByNewsId(newsId);
         List<Integer> tagIds = newsTags.stream().map(NewsTag::getTagId).toList();
         if (tagIds.isEmpty()) return List.of();
-        return tagMapper.selectBatchIds(tagIds);
-    }
-
-    /**
-     * MyBatis-Plus 分页结果转换为 Result.PageResult
-     */
-    public <T> Result.PageResult<T> toPageResult(Page<T> page) {
-        return new Result.PageResult<>(
-                page.getRecords(),
-                page.getTotal(),
-                (int) page.getCurrent(),
-                (int) page.getSize()
-        );
+        return tagMapper.selectByIds(tagIds);
     }
 }
