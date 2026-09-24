@@ -2,6 +2,7 @@ package com.financial.news.service.crawler.ingest;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.financial.news.config.CategorySeeder;
 import com.financial.news.entity.Category;
 import com.financial.news.entity.Tag;
 import com.financial.news.mapper.CategoryMapper;
@@ -20,12 +21,16 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 /**
  * AI 分类打标服务
- * <p>采集入库前的内容增强环节：由 LLM 从"库中已有分类"里逐字选择一个分类、
- * 提出 2~4 个标签（优先复用已有标签）。LLM 只做内容增强不做流程决策：
- * 输出经 schema 校验与白名单约束，任何失败返回 null，由调用方降级为来源默认分类。</p>
+ * <p>采集入库前的内容增强环节：由 LLM 从"库中已有分类"里优先逐字选择一个分类，
+ * 库中确实没有合适分类时允许提出格式合规的新分类名（受控新建，由
+ * findOrCreateCategory 落库）；标签提出 2~4 个（优先复用已有标签）。
+ * LLM 只做内容增强不做流程决策：输出经 schema 校验与格式约束，
+ * 任何失败返回 null，由调用方降级为来源默认分类。</p>
  *
  * @author financial-news
  * @since 1.0.0
@@ -60,9 +65,12 @@ public class AiTaggingService {
             .connectTimeout(Duration.ofSeconds(10))
             .build();
 
-    /** 分类与标签结果；category 保证属于库中已有分类（可能为 null），tags 已清洗去重 */
+    /** 分类与标签结果；category 为库中已有分类或格式合规的新分类名（可能为 null），tags 已清洗去重 */
     public record TaggingResult(String category, List<String> tags) {
     }
+
+    /** 新分类名约束：2~8 个汉字/字母/数字的财经领域名词 */
+    private static final Pattern NEW_CATEGORY = Pattern.compile("[\\u4e00-\\u9fa5A-Za-z0-9]{2,8}");
 
     /**
      * AI 是否可用（开关开启且配置了 api-key）
@@ -82,9 +90,10 @@ public class AiTaggingService {
         }
         try {
             List<String> categoryNames = categoryMapper.selectListAll().stream()
-                    .map(Category::getName).toList();
+                    .map(Category::getName).collect(Collectors.toList());
             if (categoryNames.isEmpty()) {
-                return null;
+                // 库为空（如全新环境种子未生效）时退回预置清单，避免整体放弃打标
+                categoryNames = CategorySeeder.PRESET_CATEGORIES;
             }
             List<String> existingTags = tagMapper.selectListAll().stream()
                     .map(Tag::getName).toList();
@@ -104,9 +113,10 @@ public class AiTaggingService {
                 你是财经新闻编辑，为下面的新闻选择分类和标签。
 
                 ## 规则
-                1. category 必须从【分类列表】中逐字选择一个，不得自创
-                2. tags 给 2~4 个：优先从【已有标签列表】选择，不够时才新增，每个 2~8 个汉字
-                3. 只输出 JSON，不要任何其他内容：{"category":"...","tags":["...","..."]}
+                1. 优先从【分类列表】中逐字选择最贴切的一个分类
+                2. 若列表中确实没有合适分类，可提出一个新分类名：2~8 个字的财经领域名词（如"有色金属"），不要造句、不要加标点
+                3. tags 给 2~4 个：优先从【已有标签列表】选择，不够时才新增，每个 2~8 个汉字
+                4. 只输出 JSON，不要任何其他内容：{"category":"...","tags":["...","..."]}
 
                 ## 分类列表
                 %s
@@ -154,7 +164,8 @@ public class AiTaggingService {
     }
 
     /**
-     * 解析并校验 LLM 输出：分类必须命中白名单，标签清洗去重限量
+     * 解析并校验 LLM 输出：分类优先白名单命中，未命中但格式合规则作为受控新分类；
+     * 标签清洗去重限量
      */
     private TaggingResult parseResult(String content, List<String> allowedCategories) throws Exception {
         String json = content.trim();
@@ -169,6 +180,9 @@ public class AiTaggingService {
         String matched = allowedCategories.stream()
                 .filter(c -> c.equalsIgnoreCase(category))
                 .findFirst().orElse(null);
+        if (matched == null && NEW_CATEGORY.matcher(category).matches()) {
+            matched = category;
+        }
 
         List<String> tags = new ArrayList<>();
         for (JsonNode t : node.path("tags")) {

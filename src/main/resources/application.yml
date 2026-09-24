@@ -86,13 +86,13 @@ crawler:
     sources:
       wallstreetcn:
         enabled: true
-        category: 国际财经
+        category: 全球市场
       sina:
         enabled: true
-        category: 财经
+        category: 综合财经
       eastmoney:
         enabled: true
-        category: 股票
+        category: A股
   # 爬虫 Agent 配置（旧 LLM 编排链路，默认关闭；本地默认个人端点）
   agent:
     # 未显式启用时不创建爬虫 Agent，避免缺少 key 阻断应用启动

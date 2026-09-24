@@ -43,6 +43,12 @@ CREATE TABLE `categories` (
     UNIQUE KEY `uk_name` (`name`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='分类表';
 
+-- 预置财经分类体系（新库种子；存量库由 CategorySeeder 启动时幂等补种，清单须与之一致）
+INSERT IGNORE INTO `categories` (`name`) VALUES
+('宏观经济'), ('货币政策'), ('A股'), ('港股'), ('美股'), ('全球市场'),
+('公司动态'), ('产业经济'), ('基金理财'), ('债券'), ('外汇'),
+('大宗商品'), ('房地产'), ('金融科技'), ('综合财经');
+
 -- ----------------------------
 -- 标签表
 -- ----------------------------
