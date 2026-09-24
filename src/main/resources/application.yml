@@ -75,6 +75,7 @@ crawler:
     max-articles-per-source: 20
     min-content-length: 200        # 正文纯文本最短字数（质量门禁）
     max-link-density: 0.6          # 正文链接密度上限（防导航/聚合页）
+    max-mojibake-ratio: 0.05       # 乱码替换符占比上限（防编码错误页面当正文）
     rate-limit-interval-ms: 1500   # 同一 host 两次请求最小间隔
     near-dup-threshold: 6          # simhash 海明距离阈值，≤ 视为近似重复
     recent-fingerprint-scan: 500   # 近似去重比对的最近文章数

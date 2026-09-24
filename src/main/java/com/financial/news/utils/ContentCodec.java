@@ -11,6 +11,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
+import org.jsoup.nodes.Entities;
+import org.jsoup.nodes.Node;
 import org.jsoup.nodes.TextNode;
 import org.jsoup.select.Elements;
 
@@ -171,18 +173,18 @@ public final class ContentCodec {
             case "table" -> {
                 List<String> header = new ArrayList<>();
                 List<List<String>> rows = new ArrayList<>();
-                Elements ths = el.select("thead th");
-                if (!ths.isEmpty()) {
-                    ths.forEach(th -> header.add(th.text()));
-                } else {
-                    el.select("tr:first-child th, tr:first-child td").forEach(th -> header.add(th.text()));
+                // 只按 tr 遍历一次：逗号联合选择（tbody tr, tr）会把行选中两次导致重复
+                Elements trs = el.select("tr");
+                boolean hasHeader = !trs.isEmpty() && !trs.first().select("th").isEmpty();
+                if (hasHeader) {
+                    trs.first().select("th, td").forEach(th -> header.add(th.text()));
                 }
-                Elements dataRows = el.select("tbody tr, tr");
-                int startIdx = header.isEmpty() ? 0 : 1;
-                for (int i = startIdx; i < dataRows.size(); i++) {
+                for (int i = hasHeader ? 1 : 0; i < trs.size(); i++) {
                     List<String> row = new ArrayList<>();
-                    dataRows.get(i).select("td").forEach(td -> row.add(td.text()));
-                    if (!row.isEmpty()) rows.add(row);
+                    trs.get(i).select("td, th").forEach(td -> row.add(td.text()));
+                    if (!row.isEmpty()) {
+                        rows.add(row);
+                    }
                 }
                 if (!header.isEmpty() || !rows.isEmpty()) {
                     blocks.add(TableBlock.builder().header(header).rows(rows).build());
@@ -208,15 +210,16 @@ public final class ContentCodec {
                 }
             }
             default -> {
-                // 递归处理嵌套的子元素
-                for (Element child : el.children()) {
-                    blocks.addAll(parseElement(child));
-                }
-                // 如果没有子元素但有文本内容
-                if (el.children().isEmpty()) {
-                    String text = el.text();
-                    if (!text.isBlank()) {
-                        blocks.add(ParagraphBlock.builder().html(text).build());
+                // 按文档顺序遍历子节点：容器内夹在子元素之间的裸文本也要成段，
+                // 只递归子元素会把 div 里直接书写的文本整段丢掉
+                for (Node child : el.childNodes()) {
+                    if (child instanceof TextNode textNode) {
+                        String text = textNode.getWholeText().strip();
+                        if (!text.isBlank()) {
+                            blocks.add(ParagraphBlock.builder().html(Entities.escape(text)).build());
+                        }
+                    } else if (child instanceof Element childEl) {
+                        blocks.addAll(parseElement(childEl));
                     }
                 }
             }

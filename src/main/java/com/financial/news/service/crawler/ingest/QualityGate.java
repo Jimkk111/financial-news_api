@@ -13,6 +13,7 @@ import java.time.LocalDateTime;
  * <ul>
  *   <li>正文纯文本长度达标（防垃圾段落/空壳页）</li>
  *   <li>链接密度不超标（防导航/聚合页当正文）</li>
+ *   <li>乱码替换符占比不超标（防编码错误页面当正文）</li>
  *   <li>必须有可解析的发布时间（不伪造当前时间）</li>
  * </ul>
  *
@@ -28,6 +29,9 @@ public class QualityGate {
     @Value("${crawler.ingest.max-link-density:0.6}")
     private double maxLinkDensity;
 
+    @Value("${crawler.ingest.max-mojibake-ratio:0.05}")
+    private double maxMojibakeRatio;
+
     public record Result(boolean pass, String reason) {
     }
 
@@ -40,6 +44,11 @@ public class QualityGate {
         }
         if (plainText.length() < minContentLength) {
             return new Result(false, "正文过短(" + plainText.length() + "<" + minContentLength + "字)");
+        }
+        long mojibake = plainText.chars().filter(c -> c == '\uFFFD').count();
+        double mojibakeRatio = (double) mojibake / plainText.length();
+        if (mojibakeRatio > maxMojibakeRatio) {
+            return new Result(false, String.format("乱码字符占比过高(%.2f)，疑似编码错误", mojibakeRatio));
         }
         if (contentHtml != null && !contentHtml.isBlank()) {
             Element body = Jsoup.parseBodyFragment(contentHtml).body();

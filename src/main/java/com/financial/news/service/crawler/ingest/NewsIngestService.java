@@ -11,13 +11,16 @@ import com.financial.news.mapper.NewsMapper;
 import com.financial.news.mapper.NewsTagMapper;
 import com.financial.news.mapper.TagMapper;
 import com.financial.news.model.content.Block;
+import com.financial.news.service.NewsService;
 import com.financial.news.utils.ContentCodec;
 import com.financial.news.utils.FingerprintUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.jsoup.Jsoup;
+import org.jsoup.nodes.Element;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DuplicateKeyException;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
@@ -53,6 +56,7 @@ public class NewsIngestService {
     private final CrawlAuditMapper crawlAuditMapper;
     private final QualityGate qualityGate;
     private final AiTaggingService aiTaggingService;
+    private final StringRedisTemplate redisTemplate;
 
     @Value("${crawler.ingest.max-articles-per-source:20}")
     private int maxPerSource;
@@ -65,6 +69,14 @@ public class NewsIngestService {
 
     @Value("${crawler.ingest.cron-enabled-limit:20}")
     private int cronLimit;
+
+    @Value("${crawler.ingest.min-content-length:200}")
+    private int minContentLength;
+
+    /** 回填候选的正文长度阈值：门禁长度加余量，"刚好过线"的疑似摘要型记录也纳入 */
+    private int backfillThreshold() {
+        return minContentLength + 100;
+    }
 
     /**
      * 定时采集入口，cron 由 crawler.ingest.cron 配置（"-" 表示关闭，默认关闭）
@@ -161,7 +173,7 @@ public class NewsIngestService {
         LocalDateTime publishTime = detail.publishTime() != null ? detail.publishTime() : ref.publishTime();
 
         // 4. 正文提取与清洗 → 块级 JSON
-        String contentHtml = cleanContentHtml(detail.contentHtml());
+        String contentHtml = absolutizeImages(cleanContentHtml(detail.contentHtml()), url);
         String plainText = Jsoup.parse(contentHtml).text();
 
         // 5. 质量门禁（时间缺失/正文过短/导航噪声一律拒绝）
@@ -241,6 +253,7 @@ public class NewsIngestService {
                 } else {
                     Tag tag = Tag.builder().name(name).build();
                     tagMapper.insert(tag);
+                    evictListCache(NewsService.CACHE_NEWS_TAGS);
                     tagId = tag.getId();
                 }
                 newsTagMapper.insert(NewsTag.builder().newsId(newsId).tagId(tagId).build());
@@ -250,8 +263,92 @@ public class NewsIngestService {
         }
     }
 
-    /** 最近 N 篇文章的指纹，用于本轮近似去重比对（须为可变列表：新入库的指纹会追加进来） */
-    private List<Long> loadRecentFingerprints() {
+    /**
+     * 存量正文回填：重抓"缺正文"记录并更新
+     * <p>候选条件：content_json 为空或 content 过短（软删排除）。按记录的 source
+     * 匹配连接器按 URL 重抓详情，重走清洗/门禁/结构化后仅更新正文相关列；
+     * 单篇失败保留原值并记审计，不影响其他记录。</p>
+     *
+     * @param sourceKeyOrName 数据源标识或展示名（null 为全部，按记录来源分派）
+     * @param limit           本批处理上限（≤100）
+     */
+    public IngestReport backfill(String sourceKeyOrName, Integer limit) {
+        int per = limit != null ? Math.min(limit, 100) : 20;
+        IngestReport report = new IngestReport();
+        report.runId = "backfill-" + System.currentTimeMillis();
+
+        Map<String, SourceConnector> byNameOrKey = new HashMap<>();
+        for (SourceConnector c : connectors) {
+            byNameOrKey.put(c.sourceName(), c);
+            byNameOrKey.put(c.sourceKey(), c);
+        }
+        SourceConnector only = null;
+        if (sourceKeyOrName != null) {
+            only = byNameOrKey.get(sourceKeyOrName);
+            if (only == null) {
+                throw new IllegalArgumentException("未找到数据源: " + sourceKeyOrName);
+            }
+        }
+
+        List<News> candidates = newsMapper.selectBackfillCandidates(backfillThreshold(), per);
+        for (News news : candidates) {
+            SourceConnector connector = only != null ? only : byNameOrKey.get(news.getSource());
+            if (connector == null || news.getUrl() == null) {
+                continue; // 用户发布或来源已下线的记录，无法重抓
+            }
+            SourceStat stat = report.statOf(connector.sourceKey());
+            long started = System.currentTimeMillis();
+            try {
+                ArticleRef ref = connector.refFromUrl(news.getUrl(), news.getTitle(), news.getPublishTime());
+                ArticleDetail detail = connector.fetchDetail(ref);
+                String contentHtml = absolutizeImages(cleanContentHtml(detail.contentHtml()), news.getUrl());
+                String plainText = Jsoup.parse(contentHtml).text();
+
+                QualityGate.Result gate = qualityGate.check(contentHtml, plainText, news.getPublishTime());
+                if (!gate.pass()) {
+                    stat.rejected++;
+                    audit(report.runId, connector.sourceKey(), news.getUrl(), news.getTitle(),
+                            CrawlAudit.REJECTED, "回填被门禁拒绝:" + gate.reason(), plainText.length(), news.getPublishTime(), started);
+                    continue;
+                }
+                List<Block> blocks = ContentCodec.normalize(ContentCodec.fromHtml(contentHtml));
+                if (blocks.isEmpty()) {
+                    stat.rejected++;
+                    audit(report.runId, connector.sourceKey(), news.getUrl(), news.getTitle(),
+                            CrawlAudit.REJECTED, "回填正文无法结构化", plainText.length(), news.getPublishTime(), started);
+                    continue;
+                }
+                String summary = detail.summaryHint() != null && !detail.summaryHint().isBlank()
+                        ? detail.summaryHint()
+                        : plainText.substring(0, Math.min(plainText.length(), 200));
+                String imageUrl = detail.imageUrl() != null && !detail.imageUrl().isBlank()
+                        ? detail.imageUrl() : news.getImageUrl();
+                int oldLength = news.getContent() == null ? 0 : news.getContent().length();
+
+                newsMapper.updateContent(News.builder()
+                        .id(news.getId())
+                        .summary(summary)
+                        .content(contentHtml)
+                        .contentJson(blocks)
+                        .imageUrl(imageUrl)
+                        .hasImage(imageUrl != null && !imageUrl.isBlank())
+                        .build());
+                stat.saved++;
+                audit(report.runId, connector.sourceKey(), news.getUrl(), news.getTitle(), CrawlAudit.SAVED,
+                        String.format("回填更新:正文 %d → %d 字", oldLength, plainText.length()),
+                        plainText.length(), news.getPublishTime(), started);
+            } catch (Exception e) {
+                stat.failed++;
+                audit(report.runId, connector.sourceKey(), news.getUrl(), news.getTitle(),
+                        CrawlAudit.FAILED, "回填失败:" + safeMessage(e), null, news.getPublishTime(), started);
+            }
+        }
+        report.finishedAt = LocalDateTime.now();
+        log.info("存量回填完成 {}: {}", report.runId, report.summary());
+        return report;
+    }
+
+    /** 最近 N 篇文章的指纹，用于本轮近似去重比对（须为可变列表：新入库的指纹会追加进来） */    private List<Long> loadRecentFingerprints() {
         return newsMapper.selectRecentFingerprints(recentFingerprintScan)
                 .stream()
                 .map(News::getContentFingerprint)
@@ -284,13 +381,28 @@ public class NewsIngestService {
         }
     }
 
-    /** 移除脚本/样式/内嵌广告类节点 */
+    /** 移除脚本/内嵌框架与广告类噪声节点（词元级匹配，避免子串误删正文容器） */
     private String cleanContentHtml(String html) {
         if (html == null || html.isBlank()) {
             return "";
         }
         var doc = Jsoup.parseBodyFragment(html);
-        doc.select("script, style, iframe, noscript, ins, [class*=ad], [id*=ad], [class*=share], [class*=recommend]").remove();
+        ContentNoiseFilter.remove(doc);
+        return doc.body().html();
+    }
+
+    /** 图片 src 归一为绝对地址：相对/协议相对路径在详情页之外无法加载 */
+    private String absolutizeImages(String html, String baseUri) {
+        if (html == null || html.isBlank() || baseUri == null || baseUri.isBlank()) {
+            return html == null ? "" : html;
+        }
+        var doc = Jsoup.parseBodyFragment(html, baseUri);
+        for (Element img : doc.select("img")) {
+            String abs = img.absUrl("src");
+            if (!abs.isBlank()) {
+                img.attr("src", abs);
+            }
+        }
         return doc.body().html();
     }
 
@@ -304,7 +416,17 @@ public class NewsIngestService {
         }
         Category category = Category.builder().name(name).build();
         categoryMapper.insert(category);
+        evictListCache(NewsService.CACHE_NEWS_CATEGORIES);
         return category.getId();
+    }
+
+    /** 新建分类/标签后失效列表缓存，保证 /api/news/categories|tags 立即可见；Redis 不可用只告警不阻断入库 */
+    private void evictListCache(String key) {
+        try {
+            redisTemplate.delete(key);
+        } catch (Exception e) {
+            log.warn("分类/标签缓存失效失败（key={}）: {}", key, e.getMessage());
+        }
     }
 
     private void audit(String runId, String source, String url, String title, String status, String reason,

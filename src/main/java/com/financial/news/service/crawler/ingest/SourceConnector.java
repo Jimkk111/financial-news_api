@@ -1,5 +1,6 @@
 package com.financial.news.service.crawler.ingest;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 /**
@@ -37,4 +38,12 @@ public interface SourceConnector {
      * 抓取文章详情（正文 HTML）
      */
     ArticleDetail fetchDetail(ArticleRef ref) throws Exception;
+
+    /**
+     * 由已入库的文章 URL 还原抓取引用（存量回填用）。
+     * 默认以 URL 自身作为 refId；数据源内部 ID 与 URL 不同时（如华尔街见闻）覆写。
+     */
+    default ArticleRef refFromUrl(String url, String title, LocalDateTime publishTime) {
+        return ArticleRef.builder().refId(url).url(url).title(title).publishTime(publishTime).build();
+    }
 }

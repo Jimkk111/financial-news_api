@@ -86,6 +86,7 @@ public class WallstreetcnConnector implements SourceConnector {
                     .url(url)
                     .title(title.trim())
                     .publishTime(toTime(item.path("display_time").asLong(0)))
+                    .summaryHint(cleanHint(item.path("content_short").asText("")))
                     .build());
             if (refs.size() >= limit) {
                 break;
@@ -120,9 +121,30 @@ public class WallstreetcnConnector implements SourceConnector {
                 .publishTime(toTime(data.path("display_time").asLong(0)))
                 .contentHtml(data.path("content").asText(""))
                 .imageUrl(data.path("image").path("uri").asText(""))
-                .summaryHint(null)
+                .summaryHint(ref.summaryHint())
                 .categories(categories)
                 .build();
+    }
+
+    /** 回填场景由已入库 URL 还原引用：uri 末段即文章 ID */
+    @Override
+    public ArticleRef refFromUrl(String url, String title, LocalDateTime publishTime) {
+        String id = url.substring(url.lastIndexOf('/') + 1);
+        return ArticleRef.builder()
+                .refId(id.matches("\\d+") ? id : url)
+                .url(url)
+                .title(title)
+                .publishTime(publishTime)
+                .build();
+    }
+
+    /** content_short 可能携带 HTML 标签/实体，摘要只用纯文本 */
+    private String cleanHint(String hint) {
+        if (hint == null || hint.isBlank()) {
+            return null;
+        }
+        String text = org.jsoup.Jsoup.parse(hint).text().strip();
+        return text.isEmpty() ? null : text;
     }
 
     private LocalDateTime toTime(long epochSeconds) {

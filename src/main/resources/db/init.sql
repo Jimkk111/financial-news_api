@@ -69,7 +69,7 @@ CREATE TABLE `news` (
     `id` INT NOT NULL AUTO_INCREMENT COMMENT '主键',
     `title` VARCHAR(200) NOT NULL COMMENT '标题',
     `summary` TEXT DEFAULT NULL COMMENT '摘要',
-    `content` TEXT DEFAULT NULL COMMENT '正文内容（旧 HTML，过渡期保留）',
+    `content` LONGTEXT DEFAULT NULL COMMENT '正文内容（旧 HTML，过渡期保留）',
     `content_json` LONGTEXT DEFAULT NULL COMMENT '正文内容（块级 JSON 字符串，新契约）',
     `publish_time` DATETIME DEFAULT NULL COMMENT '发布时间',
     `source` VARCHAR(100) DEFAULT NULL COMMENT '来源',

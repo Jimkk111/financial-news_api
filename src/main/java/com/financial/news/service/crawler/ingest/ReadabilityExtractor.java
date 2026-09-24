@@ -17,9 +17,8 @@ import org.springframework.stereotype.Component;
 @Component
 public class ReadabilityExtractor {
 
-    private static final String STRIP_SELECTOR =
-            "script, style, noscript, iframe, form, nav, header, footer, aside, " +
-            "[class*=ad], [id*=ad], [class*=comment], [class*=recommend], [class*=related], [class*=share]";
+    /** 页面结构噪声（仅整页解析时存在；广告/推荐类词元匹配见 ContentNoiseFilter） */
+    private static final String STRIP_SELECTOR = "form, nav, header, footer, aside";
 
     /**
      * 提取正文区域 HTML；无法定位时返回空字符串（由调用方决定拒绝）
@@ -27,7 +26,7 @@ public class ReadabilityExtractor {
     public String extract(Document doc) {
         Document work = doc.clone();
         work.select(STRIP_SELECTOR).remove();
-        work.getElementsByClass("ad").remove();
+        ContentNoiseFilter.remove(work);
 
         Elements candidates = work.select("p, pre, td");
         if (candidates.isEmpty()) {

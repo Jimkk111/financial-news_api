@@ -83,6 +83,7 @@ public class SinaConnector implements SourceConnector {
                     .publishTime(ctime > 0
                             ? LocalDateTime.ofInstant(Instant.ofEpochSecond(ctime), ZoneId.of("Asia/Shanghai"))
                             : null)
+                    .summaryHint(cleanHint(item.path("intro").asText("")))
                     .build());
             if (refs.size() >= limit) {
                 break;
@@ -127,9 +128,18 @@ public class SinaConnector implements SourceConnector {
                 .publishTime(ref.publishTime()) // ctime 可靠，以列表时间为准
                 .contentHtml(contentHtml)
                 .imageUrl(imageUrl)
-                .summaryHint(null)
+                .summaryHint(ref.summaryHint())
                 .categories(List.of())
                 .build();
+    }
+
+    /** roll 接口的 intro 可能含 HTML 标签/实体，摘要只用纯文本 */
+    private String cleanHint(String hint) {
+        if (hint == null || hint.isBlank()) {
+            return null;
+        }
+        String text = Jsoup.parse(hint).text().strip();
+        return text.isEmpty() ? null : text;
     }
 
     private long parseLong(String value) {

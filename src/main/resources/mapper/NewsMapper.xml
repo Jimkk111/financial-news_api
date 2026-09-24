@@ -141,4 +141,24 @@
         WHERE id = #{id} AND deleted_at IS NULL
     </select>
 
+    <select id="selectBackfillCandidates" resultMap="BaseResultMap">
+        SELECT id, title, summary, content, publish_time, source, url, image_url, has_image
+        FROM news
+        WHERE deleted_at IS NULL
+          AND url IS NOT NULL
+          AND (content_json IS NULL OR CHAR_LENGTH(content) &lt; #{threshold})
+        ORDER BY publish_time DESC
+        LIMIT #{limit}
+    </select>
+
+    <update id="updateContent">
+        UPDATE news
+        SET summary = #{summary},
+            content = #{content},
+            content_json = #{contentJson,typeHandler=com.financial.news.utils.BlockListTypeHandler},
+            image_url = #{imageUrl},
+            has_image = #{hasImage}
+        WHERE id = #{id} AND deleted_at IS NULL
+    </update>
+
 </mapper>

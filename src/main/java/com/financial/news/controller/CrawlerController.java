@@ -46,7 +46,20 @@ public class CrawlerController {
         return Result.ok(report.toMap());
     }
 
-    /** 采集请求参数 */
+    /**
+     * 存量正文回填（重抓缺正文记录）
+     */
+    @Operation(summary = "存量正文回填", description = "重抓正文缺失/过短的已入库记录：按来源匹配连接器重新抓取详情，过门禁后更新正文，失败保留原值并记审计")
+    @PostMapping("/ingest/backfill")
+    public Result<Map<String, Object>> backfill(@RequestBody(required = false) IngestRequest request) {
+        JwtUserDetails.getCurrentUser();
+        String source = request != null ? request.getSource() : null;
+        Integer limit = request != null && request.getLimit() != null ? request.getLimit() : 20;
+        NewsIngestService.IngestReport report = newsIngestService.backfill(source, limit);
+        return Result.ok(report.toMap());
+    }
+
+    /** 采集请求参数（source 亦可为来源展示名，如"东方财富"） */
     public static class IngestRequest {
         /** 数据源标识：wallstreetcn / sina / eastmoney，空为全部 */
         private String source;

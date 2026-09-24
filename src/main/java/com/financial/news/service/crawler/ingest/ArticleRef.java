@@ -11,7 +11,9 @@ import java.time.LocalDateTime;
  * @param url         文章页面 URL
  * @param title       标题
  * @param publishTime 发布时间（列表阶段可解析时填充，可为空）
+ * @param summaryHint 列表接口附带的摘要（如新浪 intro、华尔街见闻 content_short），可为空
  */
 @Builder
-public record ArticleRef(String refId, String url, String title, LocalDateTime publishTime) {
+public record ArticleRef(String refId, String url, String title, LocalDateTime publishTime,
+                         String summaryHint) {
 }

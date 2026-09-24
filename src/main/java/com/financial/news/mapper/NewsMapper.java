@@ -68,4 +68,14 @@ public interface NewsMapper {
      */
     @Update("UPDATE news SET views = views + 1 WHERE id = #{id}")
     int incrementViews(@Param("id") Integer id);
+
+    /**
+     * 回填候选：content_json 为空或 content 过短的未软删记录（按发布时间倒序）
+     */
+    List<News> selectBackfillCandidates(@Param("threshold") int threshold, @Param("limit") int limit);
+
+    /**
+     * 回填更新正文相关列（summary/content/content_json/image_url/has_image），其余列不动
+     */
+    int updateContent(News news);
 }

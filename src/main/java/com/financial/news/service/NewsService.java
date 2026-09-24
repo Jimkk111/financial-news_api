@@ -37,8 +37,9 @@ public class NewsService {
     private final RedisTemplate<String, Object> redisTemplate;
 
     private static final String CACHE_NEWS_DETAIL = "cls:news:detail:";
-    private static final String CACHE_NEWS_CATEGORIES = "cls:news:categories";
-    private static final String CACHE_NEWS_TAGS = "cls:news:tags";
+    /** 分类/标签列表缓存键：采集侧新建分类/标签后据此主动失效（见 NewsIngestService） */
+    public static final String CACHE_NEWS_CATEGORIES = "cls:news:categories";
+    public static final String CACHE_NEWS_TAGS = "cls:news:tags";
     private static final String VIEW_DEDUP_KEY = "cls:news:viewed:";
     private static final long DETAIL_TTL = 600;   // 10分钟
     private static final long LIST_TTL = 3600;    // 1小时
