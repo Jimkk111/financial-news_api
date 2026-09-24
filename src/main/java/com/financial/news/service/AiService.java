@@ -7,19 +7,13 @@ import com.financial.news.entity.AiMessage;
 import com.financial.news.entity.AiSession;
 import com.financial.news.mapper.AiMessageMapper;
 import com.financial.news.mapper.AiSessionMapper;
+import com.financial.news.service.ai.OpenAiCompatibleClient;
+import com.financial.news.service.ai.OpenAiCompatibleClient.ChatParam;
+import com.financial.news.service.ai.OpenAiCompatibleClient.ChatResult;
+import com.financial.news.service.ai.OpenAiCompatibleClient.StreamCallback;
 import com.financial.news.utils.IdGenerator;
-import dev.langchain4j.data.message.ChatMessage;
-import dev.langchain4j.data.message.SystemMessage;
-import dev.langchain4j.data.message.UserMessage;
-import dev.langchain4j.model.StreamingResponseHandler;
-import dev.langchain4j.model.chat.ChatLanguageModel;
-import dev.langchain4j.model.chat.StreamingChatLanguageModel;
-import dev.langchain4j.model.openai.OpenAiChatModel;
-import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
-import dev.langchain4j.model.output.Response;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
@@ -27,13 +21,18 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import java.io.IOException;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * AI 服务
- * <p>提供 AI 会话管理、消息查询和 AI 对话功能（支持流式 SSE）</p>
+ * <p>提供 AI 会话管理、消息查询和 AI 对话功能（支持流式 SSE 与思考链透传）</p>
+ *
+ * <p>对话链路通过 {@link OpenAiCompatibleClient} 直连 OpenAI 兼容接口：
+ * langchain4j/openai4j 不映射思考型模型的 reasoning_content 字段会静默丢弃思考链，
+ * 导致模型思考期间前端长时间无响应。</p>
  *
  * @author financial-news
  * @since 1.0.0
@@ -45,67 +44,7 @@ public class AiService {
 
     private final AiSessionMapper aiSessionMapper;
     private final AiMessageMapper aiMessageMapper;
-
-    @Value("${ai.api-key:}") private String apiKey;
-    @Value("${ai.api-base-url:https://api.openai.com/v1}") private String apiBaseUrl;
-    @Value("${ai.model:gpt-3.5-turbo}") private String model;
-    @Value("${ai.max-tokens:2000}") private int maxTokens;
-    @Value("${ai.temperature:0.7}") private double temperature;
-
-    /** LangChain4j 模型懒加载：@Value 注入完成后首次调用时按配置构建 */
-    private volatile ChatLanguageModel chatLanguageModel;
-    private volatile StreamingChatLanguageModel streamingChatLanguageModel;
-
-    private ChatLanguageModel chatModel() {
-        if (chatLanguageModel == null) {
-            synchronized (this) {
-                if (chatLanguageModel == null) {
-                    chatLanguageModel = OpenAiChatModel.builder()
-                            .apiKey(apiKey)
-                            .baseUrl(apiBaseUrl)
-                            .modelName(model)
-                            .maxTokens(maxTokens)
-                            .temperature(temperature)
-                            .timeout(java.time.Duration.ofSeconds(60))
-                            .build();
-                }
-            }
-        }
-        return chatLanguageModel;
-    }
-
-    private StreamingChatLanguageModel streamingModel() {
-        if (streamingChatLanguageModel == null) {
-            synchronized (this) {
-                if (streamingChatLanguageModel == null) {
-                    streamingChatLanguageModel = OpenAiStreamingChatModel.builder()
-                            .apiKey(apiKey)
-                            .baseUrl(apiBaseUrl)
-                            .modelName(model)
-                            .maxTokens(maxTokens)
-                            .temperature(temperature)
-                            // 覆盖整个流式生成周期（SSE Emitter 超时 300s 之内）
-                            .timeout(java.time.Duration.ofSeconds(240))
-                            .build();
-                }
-            }
-        }
-        return streamingChatLanguageModel;
-    }
-
-    /** 项目消息角色 → LangChain4j 消息 */
-    private List<ChatMessage> toLangChainMessages(List<AiChatRequest.ChatMessage> messages) {
-        List<ChatMessage> result = new ArrayList<>();
-        for (AiChatRequest.ChatMessage m : messages) {
-            String role = m.getRole() == null ? "user" : m.getRole().toLowerCase();
-            switch (role) {
-                case "assistant" -> result.add(dev.langchain4j.data.message.AiMessage.from(m.getContent()));
-                case "system" -> result.add(SystemMessage.from(m.getContent()));
-                default -> result.add(UserMessage.from(m.getContent()));
-            }
-        }
-        return result;
-    }
+    private final OpenAiCompatibleClient aiClient;
 
     /** SSE 流式推送专用线程池，避免占用公共 ForkJoinPool 和请求线程 */
     private final java.util.concurrent.ExecutorService sseExecutor =
@@ -118,6 +57,17 @@ public class AiService {
                         return t;
                     },
                     new java.util.concurrent.ThreadPoolExecutor.CallerRunsPolicy());
+
+    /** 心跳调度器：思考期间若无任何 token 到达，定期发 SSE 注释行防止链路被中间层/前端空闲超时掐断 */
+    private final ScheduledExecutorService heartbeatScheduler =
+            Executors.newSingleThreadScheduledExecutor(r -> {
+                Thread t = new Thread(r, "ai-sse-heartbeat");
+                t.setDaemon(true);
+                return t;
+            });
+
+    /** 心跳间隔：小于前端 30s 空闲超时，留足余量 */
+    private static final int HEARTBEAT_INTERVAL_SECONDS = 15;
 
     /** 获取用户的 AI 会话列表（批量取各会话最后一条消息，避免 N+1） */
     public List<Map<String, Object>> listSessions(Integer userId) {
@@ -183,63 +133,150 @@ public class AiService {
     public Map<String, Object> chat(Integer userId, AiChatRequest request) {
         AiSession session = resolveSession(userId, request.getSessionId());
         // 保存本轮用户消息。请求中的其余消息仅作为 AI 上下文，避免历史消息重复入库。
-        List<AiChatRequest.ChatMessage> msgs = request.getMessages();
-        List<AiChatRequest.ChatMessage> sendMsgs = limitContextMessages(msgs);
+        List<AiChatRequest.ChatMessage> sendMsgs = limitContextMessages(request.getMessages());
         saveCurrentUserMessage(session, sendMsgs);
 
         // 调用 AI API（事务外）
-        String aiResponse = callAiApi(sendMsgs);
+        ChatResult aiResult = callAi(toParams(sendMsgs));
 
-        aiMessageMapper.insert(AiMessage.builder().sessionId(session.getId()).role("assistant").content(aiResponse).build());
+        aiMessageMapper.insert(AiMessage.builder()
+                .sessionId(session.getId()).role("assistant")
+                .content(aiResult.content()).reasoningContent(aiResult.reasoning())
+                .build());
+        touchSession(session, aiResult.content());
 
-        // 首次对话自动生成标题
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("role", "assistant");
+        result.put("content", aiResult.content());
+        result.put("sessionId", session.getSessionId());
+        if (aiResult.reasoning() != null && !aiResult.reasoning().isBlank()) {
+            result.put("reasoning", aiResult.reasoning());
+        }
+        return result;
+    }
+
+    /**
+     * AI 对话（流式 SSE）
+     * <p>事件契约（均为 {@code data:} JSON）：</p>
+     * <ul>
+     *   <li>{@code {"sessionId":"..."}} —— 请求受理即发送（提交响应头，前端可立即感知）</li>
+     *   <li>{@code {"reasoning":"增量"}} —— 思考链增量，正文开始前持续到达</li>
+     *   <li>{@code {"content":"增量"}} —— 正文增量</li>
+     *   <li>{@code {"error":"..."}} —— 上游返回了内容但正文为空等业务失败，随后仍会发 [DONE]</li>
+     *   <li>{@code [DONE]} —— 正常结束</li>
+     * </ul>
+     * <p>思考期等静默阶段每 15s 发一条 SSE 注释行（: keep-alive）保活。</p>
+     */
+    public SseEmitter chatStream(Integer userId, AiChatRequest request) {
+        SseEmitter emitter = new SseEmitter(300000L); // 5分钟超时
+        CompletableFuture.runAsync(() -> {
+            ScheduledFuture<?> heartbeat = null;
+            try {
+                AiSession session = resolveSession(userId, request.getSessionId());
+                // 早冲刷：受理即回传 sessionId 提交响应头，避免长时间 pending 且前端空闲计时从此时起算
+                sendEvent(emitter, Map.of("sessionId", session.getSessionId()));
+
+                // 保存本轮用户消息。请求中的其余消息仅作为 AI 上下文，避免历史消息重复入库。
+                List<AiChatRequest.ChatMessage> sendMsgs = limitContextMessages(request.getMessages());
+                saveCurrentUserMessage(session, sendMsgs);
+
+                // 心跳兜底：正常情况下 reasoning/content 增量本身就是持续数据流
+                heartbeat = heartbeatScheduler.scheduleAtFixedRate(() -> {
+                    try {
+                        emitter.send(SseEmitter.event().comment("keep-alive"));
+                    } catch (Exception e) {
+                        log.debug("SSE 心跳发送失败（客户端可能已断开）: {}", e.getMessage());
+                    }
+                }, HEARTBEAT_INTERVAL_SECONDS, HEARTBEAT_INTERVAL_SECONDS, TimeUnit.SECONDS);
+
+                StringBuilder reasoning = new StringBuilder();
+                StringBuilder content = new StringBuilder();
+                aiClient.stream(toParams(sendMsgs), new StreamCallback() {
+                    @Override
+                    public void onReasoning(String delta) {
+                        reasoning.append(delta);
+                        sendEvent(emitter, Map.of("reasoning", delta));
+                    }
+
+                    @Override
+                    public void onContent(String delta) {
+                        content.append(delta);
+                        sendEvent(emitter, Map.of("content", delta));
+                    }
+                });
+
+                if (content.toString().isBlank()) {
+                    // 思考型模型可能耗尽 max_tokens 只剩思考链：以流内 error 事件告知前端，连接正常收尾
+                    sendEvent(emitter, Map.of("error", "AI 响应内容为空"));
+                } else {
+                    aiMessageMapper.insert(AiMessage.builder()
+                            .sessionId(session.getId()).role("assistant")
+                            .content(content.toString()).reasoningContent(reasoning.toString())
+                            .build());
+                    touchSession(session, content.toString());
+                }
+                emitter.send(SseEmitter.event().data("[DONE]"));
+                emitter.complete();
+            } catch (Exception e) {
+                log.error("AI 流式对话异常", e);
+                emitter.completeWithError(e);
+            } finally {
+                if (heartbeat != null) {
+                    heartbeat.cancel(false);
+                }
+            }
+        }, sseExecutor);
+        return emitter;
+    }
+
+    /**
+     * 发送 SSE data 事件；客户端断开后的 send 失败以运行时异常抛出，
+     * 经流式 callback 传播中止上游生成（停止计费），由外层统一 completeWithError。
+     */
+    private void sendEvent(SseEmitter emitter, Object payload) {
+        try {
+            emitter.send(SseEmitter.event().data(payload));
+        } catch (IOException | IllegalStateException e) {
+            throw new IllegalStateException("SSE 客户端已断开: " + e.getMessage(), e);
+        }
+    }
+
+    /** 首轮对话用回复生成标题，后续轮次刷新更新时间 */
+    private void touchSession(AiSession session, String aiResponse) {
         if (session.getTitle() == null) {
             session.setTitle(aiResponse.length() > 30 ? aiResponse.substring(0, 30) : aiResponse);
         } else {
             session.setUpdatedAt(java.time.LocalDateTime.now());
         }
         aiSessionMapper.updateById(session);
-
-        Map<String, Object> result = new LinkedHashMap<>();
-        result.put("role", "assistant");
-        result.put("content", aiResponse);
-        result.put("sessionId", session.getSessionId());
-        return result;
     }
 
-    /** AI 对话（流式 SSE） */
-    public SseEmitter chatStream(Integer userId, AiChatRequest request) {
-        SseEmitter emitter = new SseEmitter(300000L); // 5分钟超时
-        CompletableFuture.runAsync(() -> {            
-            try {
-                AiSession session = resolveSession(userId, request.getSessionId());
-                // 保存本轮用户消息。请求中的其余消息仅作为 AI 上下文，避免历史消息重复入库。
-                List<AiChatRequest.ChatMessage> msgs = request.getMessages();
-                List<AiChatRequest.ChatMessage> sendMsgs = limitContextMessages(msgs);
-                saveCurrentUserMessage(session, sendMsgs);
+    /** 项目消息 → 直连客户端入参（role 归一小写） */
+    private List<ChatParam> toParams(List<AiChatRequest.ChatMessage> messages) {
+        List<ChatParam> params = new ArrayList<>();
+        for (AiChatRequest.ChatMessage m : messages) {
+            String role = m.getRole() == null ? "user" : m.getRole().toLowerCase();
+            params.add(new ChatParam(role, m.getContent()));
+        }
+        return params;
+    }
 
-                // 调用 AI API (流式)
-                StringBuilder fullResponse = new StringBuilder();
-                callAiApiStream(sendMsgs, chunk -> {
-                    try {
-                        emitter.send(SseEmitter.event().data(Map.of("content", chunk)));
-                    } catch (IOException e) {
-                        log.error("SSE 发送失败", e);
-                    }
-                    fullResponse.append(chunk);
-                });
-
-                // 保存 AI 回复
-                aiMessageMapper.insert(AiMessage.builder().sessionId(session.getId()).role("assistant").content(fullResponse.toString()).build());
-                emitter.send(SseEmitter.event().data(Map.of("sessionId", session.getSessionId())));
-                emitter.send(SseEmitter.event().data("[DONE]"));
-                emitter.complete();
-            } catch (Exception e) {
-                log.error("AI 流式对话异常", e);
-                emitter.completeWithError(e);
-            }
-        }, sseExecutor);
-        return emitter;
+    /**
+     * 调用 AI（非流式）。上游异常统一映射为 AI_SERVICE_UNAVAILABLE，不透出内部实现细节。
+     */
+    private ChatResult callAi(List<ChatParam> params) {
+        ChatResult result;
+        try {
+            result = aiClient.chat(params);
+        } catch (Exception e) {
+            log.error("AI API 调用失败: {}", e.getMessage());
+            throw new BusinessException(ErrorCode.AI_SERVICE_UNAVAILABLE);
+        }
+        if (result.content() == null || result.content().isBlank()) {
+            log.error("AI API 响应内容为空");
+            throw new BusinessException(ErrorCode.AI_SERVICE_UNAVAILABLE);
+        }
+        return result;
     }
 
     private List<AiChatRequest.ChatMessage> limitContextMessages(List<AiChatRequest.ChatMessage> messages) {
@@ -276,98 +313,5 @@ public class AiService {
         if (s == null) throw new BusinessException(ErrorCode.AI_SESSION_NOT_FOUND);
         if (!s.getUserId().equals(userId)) throw new BusinessException(ErrorCode.AI_SESSION_NOT_OWNER);
         return s;
-    }
-
-    /**
-     * 调用 AI（LangChain4j 非流式），返回完整回复文本。
-     * 上游异常统一映射为 AI_SERVICE_UNAVAILABLE，不透出内部实现细节。
-     */
-    protected String callAiApi(List<AiChatRequest.ChatMessage> messages) {
-        try {
-            Response<dev.langchain4j.data.message.AiMessage> response =
-                    chatModel().generate(toLangChainMessages(messages));
-            String content = response.content().text();
-            if (content == null || content.isBlank()) {
-                log.error("AI API 响应内容为空");
-                throw new BusinessException(ErrorCode.AI_SERVICE_UNAVAILABLE);
-            }
-            return content;
-        } catch (BusinessException e) {
-            throw e;
-        } catch (Exception e) {
-            log.error("AI API 调用失败", e);
-            // 不携带底层异常消息，避免向上游/内部实现细节泄露
-            throw new BusinessException(ErrorCode.AI_SERVICE_UNAVAILABLE);
-        }
-    }
-
-    /**
-     * 调用 AI 流式接口（LangChain4j StreamingChatLanguageModel，底层 stream:true），
-     * 逐 token 回调；generate 为异步回调模型，用 CountDownLatch 等待生成完成。
-     */
-    protected void streamAiApi(List<AiChatRequest.ChatMessage> messages, java.util.function.Consumer<String> tokenConsumer) {
-        CountDownLatch done = new CountDownLatch(1);
-        AtomicReference<Throwable> error = new AtomicReference<>();
-
-        streamingModel().generate(toLangChainMessages(messages), new StreamingResponseHandler<dev.langchain4j.data.message.AiMessage>() {
-            @Override
-            public void onNext(String token) {
-                if (token != null && !token.isEmpty()) {
-                    tokenConsumer.accept(token);
-                }
-            }
-
-            @Override
-            public void onComplete(Response<dev.langchain4j.data.message.AiMessage> response) {
-                done.countDown();
-            }
-
-            @Override
-            public void onError(Throwable throwable) {
-                error.set(throwable);
-                done.countDown();
-            }
-        });
-
-        try {
-            if (!done.await(280, TimeUnit.SECONDS)) {
-                log.error("AI 流式响应等待超时");
-                throw new BusinessException(ErrorCode.AI_SERVICE_UNAVAILABLE);
-            }
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new BusinessException(ErrorCode.AI_SERVICE_UNAVAILABLE);
-        }
-
-        Throwable t = error.get();
-        if (t != null) {
-            log.error("AI 流式调用失败", t);
-            throw new BusinessException(ErrorCode.AI_SERVICE_UNAVAILABLE);
-        }
-    }
-
-    /**
-     * 优先真流式（边生成边推）；流式尚未发出任何内容即失败时，
-     * 回退为非流式接口 + 分块推送，保证上游不支持 stream 时功能仍可用。
-     */
-    private void callAiApiStream(List<AiChatRequest.ChatMessage> messages, java.util.function.Consumer<String> chunkConsumer) {
-        StringBuilder received = new StringBuilder();
-        try {
-            streamAiApi(messages, chunk -> {
-                received.append(chunk);
-                chunkConsumer.accept(chunk);
-            });
-            return;
-        } catch (Exception e) {
-            if (received.length() > 0) {
-                throw e;   // 已推送部分内容，无法干净回退
-            }
-            log.warn("AI 流式接口不可用，回退为非流式分块推送: {}", e.getMessage());
-        }
-        String fullResponse = callAiApi(messages);
-        for (int i = 0; i < fullResponse.length(); i += 5) {
-            chunkConsumer.accept(fullResponse.substring(i, Math.min(i + 5, fullResponse.length())));
-            try { Thread.sleep(20); } catch (InterruptedException e) { Thread.currentThread().interrupt(); break; }
-        }
     }
 }

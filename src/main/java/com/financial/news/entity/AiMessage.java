@@ -30,5 +30,8 @@ public class AiMessage {
     /** 消息内容 */
     private String content;
 
+    /** 思考型模型的思考链（reasoning_content），仅 assistant 消息可能携带 */
+    private String reasoningContent;
+
     private LocalDateTime createdAt;
 }

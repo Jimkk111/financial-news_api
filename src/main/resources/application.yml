@@ -140,8 +140,8 @@ jwt:
 # AI 服务配置（OpenAI 兼容接口，本地默认个人端点；生产由 application-prod.yml 覆盖）
 ai:
   api-key: ${AI_API_KEY:}
-  api-base-url: ${AI_BASE_URL:https://llm-api.net/v1}
-  model: ${AI_MODEL:gpt-5.6-terra}
+  api-base-url: ${AI_BASE_URL:https://api.xiaomimimo.com/v1}
+  model: ${AI_MODEL:mimo-v2.6-flash}
   max-tokens: ${AI_MAX_TOKENS:2000}
   temperature: ${AI_TEMPERATURE:0.7}
 

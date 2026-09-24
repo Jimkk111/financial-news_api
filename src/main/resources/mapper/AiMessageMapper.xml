@@ -16,16 +16,17 @@
         <result column="session_id" property="sessionId"/>
         <result column="role" property="role"/>
         <result column="content" property="content"/>
+        <result column="reasoning_content" property="reasoningContent"/>
         <result column="created_at" property="createdAt"/>
     </resultMap>
 
     <insert id="insert" useGeneratedKeys="true" keyProperty="id">
-        INSERT INTO ai_messages (session_id, role, content, created_at)
-        VALUES (#{sessionId}, #{role}, #{content}, #{createdAt})
+        INSERT INTO ai_messages (session_id, role, content, reasoning_content, created_at)
+        VALUES (#{sessionId}, #{role}, #{content}, #{reasoningContent}, #{createdAt})
     </insert>
 
     <select id="selectBySessionId" resultMap="BaseResultMap">
-        SELECT id, session_id, role, content, created_at
+        SELECT id, session_id, role, content, reasoning_content, created_at
         FROM ai_messages
         WHERE session_id = #{sessionId}
         ORDER BY created_at ASC
