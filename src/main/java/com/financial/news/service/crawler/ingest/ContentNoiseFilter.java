@@ -48,13 +48,15 @@ final class ContentNoiseFilter {
      * <ul>
      *   <li>ad / ads / ad-xxx / ad_xxx（如 id="ad_context3"）</li>
      *   <li>含 _adv_ 词元（如 class="em_handle_adv_close"，东财正文中嵌广告）</li>
-     *   <li>share / recommend / comment / related 及其 -/_ 后缀组合</li>
+     *   <li>share / recommend / comment / related 及其 -/_ 后缀组合，以及 *_related 后缀
+     *       （如新浪港股文章正文里内嵌的 hqimg_related 热点栏目链接簇）</li>
      * </ul>
      * 注意 "admin"、"lazyload"、"readmore" 等含 ad 子串的正常词元不会命中。
      */
     private static boolean isNoiseToken(String token) {
         return token.matches("(?i)^(ad|ads)([-_].+)?")
                 || token.matches("(?i)^.+_adv([_-].+)?$")
-                || token.matches("(?i)^(share|recommend|comment|related)([-_].+)?");
+                || token.matches("(?i)^(share|recommend|comment|related)([-_].+)?")
+                || token.matches("(?i)^.+_related$");
     }
 }

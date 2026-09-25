@@ -75,6 +75,11 @@ public interface NewsMapper {
     List<News> selectBackfillCandidates(@Param("threshold") int threshold, @Param("limit") int limit);
 
     /**
+     * 重结构化候选：带尾部固定文案或无标签旧文本转储的未软删记录
+     */
+    List<News> selectRenormalizeCandidates(@Param("source") String source, @Param("limit") int limit);
+
+    /**
      * 回填更新正文相关列（summary/content/content_json/image_url/has_image），其余列不动
      */
     int updateContent(News news);

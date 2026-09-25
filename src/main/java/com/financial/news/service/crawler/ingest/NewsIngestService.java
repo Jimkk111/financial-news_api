@@ -11,6 +11,7 @@ import com.financial.news.mapper.NewsMapper;
 import com.financial.news.mapper.NewsTagMapper;
 import com.financial.news.mapper.TagMapper;
 import com.financial.news.model.content.Block;
+import com.financial.news.model.content.ParagraphBlock;
 import com.financial.news.service.NewsService;
 import com.financial.news.utils.ContentCodec;
 import com.financial.news.utils.FingerprintUtil;
@@ -201,9 +202,9 @@ public class NewsIngestService {
             audit(runId, connector.sourceKey(), url, title, CrawlAudit.REJECTED, "正文无法结构化", plainText.length(), publishTime, started);
             return;
         }
-        String summary = detail.summaryHint() != null && !detail.summaryHint().isBlank()
+        String summary = cleanSummary(detail.summaryHint() != null && !detail.summaryHint().isBlank()
                 ? detail.summaryHint()
-                : plainText.substring(0, Math.min(plainText.length(), 200));
+                : plainText.substring(0, Math.min(plainText.length(), 200)));
         // 7. AI 分类打标（LLM 仅做内容增强；关闭/失败降级为来源默认分类）
         AiTaggingService.TaggingResult tagging = aiTaggingService.classify(title, plainText);
         Integer categoryId = tagging != null && tagging.category() != null
@@ -348,6 +349,94 @@ public class NewsIngestService {
         return report;
     }
 
+    /**
+     * 存量正文重结构化：用已入库的 content 重新清洗/结构化，不重新抓取
+     * <p>适用两类记录：(a) 带尾部固定文案（新浪二维码/责编、东财声明）的 HTML 正文，
+     * 重跑清洗链即可剥离；(b) 旧 Agent 时代的无标签整页文本转储，先剥导航前缀与
+     * 页脚后缀再按句分段。每篇更新 content/content_json/summary，image 等其余列不动。</p>
+     *
+     * @param sourceKeyOrName 数据源标识或展示名（null 为全部）
+     * @param limit           本批处理上限（≤500）
+     */
+    public IngestReport renormalize(String sourceKeyOrName, Integer limit) {
+        int per = limit != null ? Math.min(limit, 500) : 200;
+        IngestReport report = new IngestReport();
+        report.runId = "renormalize-" + System.currentTimeMillis();
+
+        Map<String, SourceConnector> byNameOrKey = new HashMap<>();
+        for (SourceConnector c : connectors) {
+            byNameOrKey.put(c.sourceName(), c);
+            byNameOrKey.put(c.sourceKey(), c);
+        }
+        String sourceName = null;
+        if (sourceKeyOrName != null) {
+            SourceConnector c = byNameOrKey.get(sourceKeyOrName);
+            if (c == null) {
+                throw new IllegalArgumentException("未找到数据源: " + sourceKeyOrName);
+            }
+            sourceName = c.sourceName();
+        }
+
+        List<News> candidates = newsMapper.selectRenormalizeCandidates(sourceName, per);
+        for (News news : candidates) {
+            SourceStat stat = report.statOf(news.getSource() != null ? news.getSource() : "unknown");
+            long started = System.currentTimeMillis();
+            try {
+                String content = news.getContent();
+                if (content == null || content.isBlank()) {
+                    continue;
+                }
+                String newContent;
+                List<Block> blocks;
+                if (content.contains("<")) {
+                    newContent = cleanContentHtml(content);
+                    blocks = ContentCodec.normalize(ContentCodec.fromHtml(newContent));
+                } else {
+                    String text = cleanLegacyTextDump(content);
+                    blocks = ContentCodec.fromPlainText(text);
+                    // content 列契约是 HTML：纯文本也按段包裹，避免与无标签旧转储的筛选条件再次混淆
+                    StringBuilder sb = new StringBuilder();
+                    for (Block b : blocks) {
+                        if (b instanceof ParagraphBlock p) {
+                            sb.append("<p>").append(p.getHtml()).append("</p>\n");
+                        }
+                    }
+                    newContent = sb.toString();
+                }
+                if (blocks.isEmpty()) {
+                    stat.rejected++;
+                    audit(report.runId, "renormalize", news.getUrl(), news.getTitle(),
+                            CrawlAudit.REJECTED, "重结构化后无内容", null, news.getPublishTime(), started);
+                    continue;
+                }
+                String summary = cleanSummary(ContentCodec.toPlainText(blocks));
+                if (summary != null && summary.length() > 200) {
+                    summary = summary.substring(0, 200);
+                }
+                int oldLen = content.length();
+                newsMapper.updateContent(News.builder()
+                        .id(news.getId())
+                        .summary(summary)
+                        .content(newContent)
+                        .contentJson(blocks)
+                        .imageUrl(news.getImageUrl())
+                        .hasImage(news.getHasImage())
+                        .build());
+                stat.saved++;
+                audit(report.runId, "renormalize", news.getUrl(), news.getTitle(), CrawlAudit.SAVED,
+                        String.format("重结构化:%d字,%d块", newContent.length(), blocks.size()),
+                        newContent.length(), news.getPublishTime(), started);
+            } catch (Exception e) {
+                stat.failed++;
+                audit(report.runId, "renormalize", news.getUrl(), news.getTitle(),
+                        CrawlAudit.FAILED, "重结构化失败:" + safeMessage(e), null, news.getPublishTime(), started);
+            }
+        }
+        report.finishedAt = LocalDateTime.now();
+        log.info("存量重结构化完成 {}: {}", report.runId, report.summary());
+        return report;
+    }
+
     /** 最近 N 篇文章的指纹，用于本轮近似去重比对（须为可变列表：新入库的指纹会追加进来） */    private List<Long> loadRecentFingerprints() {
         return newsMapper.selectRecentFingerprints(recentFingerprintScan)
                 .stream()
@@ -381,14 +470,44 @@ public class NewsIngestService {
         }
     }
 
-    /** 移除脚本/内嵌框架与广告类噪声节点（词元级匹配，避免子串误删正文容器） */
+    /** 移除脚本/内嵌框架与广告类噪声节点，并剥离尾部固定文案（新浪二维码/责编、东财声明） */
     private String cleanContentHtml(String html) {
         if (html == null || html.isBlank()) {
             return "";
         }
         var doc = Jsoup.parseBodyFragment(html);
         ContentNoiseFilter.remove(doc);
-        return doc.body().html();
+        return BoilerplateStripper.strip(doc.body().html());
+    }
+
+    /** 摘要只保留单空格分隔的纯文本（去掉全角空格与换行，列表卡片观感） */
+    private String cleanSummary(String summary) {
+        if (summary == null) {
+            return null;
+        }
+        String cleaned = summary.replaceAll("[\\s\\u3000]+", " ").trim();
+        return cleaned.isEmpty() ? null : cleaned;
+    }
+
+    /**
+     * 旧 Agent 时代整页文本转储的清理：剥导航/推广前缀与页脚后缀，只留正文
+     */
+    private String cleanLegacyTextDump(String text) {
+        String t = text.strip();
+        // 前缀：导航菜单 + "东方财富APP … 分享到您的 朋友圈"推广块之后才是正文
+        int promo = t.indexOf("朋友圈");
+        if (promo >= 0 && t.indexOf("东方财富APP") >= 0 && promo < t.length() / 2) {
+            t = t.substring(promo + "朋友圈".length()).strip();
+        }
+        // 后缀：页脚备案/版权/声明块
+        for (String marker : new String[]{"官方网站", "信息网络传播视听节目许可证", "版权所有",
+                "郑重声明", "免责声明", "违法和不良信息举报"}) {
+            int idx = t.indexOf(marker);
+            if (idx > 0) {
+                t = t.substring(0, idx).strip();
+            }
+        }
+        return t;
     }
 
     /** 图片 src 归一为绝对地址：相对/协议相对路径在详情页之外无法加载 */
