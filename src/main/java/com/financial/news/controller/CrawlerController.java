@@ -59,6 +59,19 @@ public class CrawlerController {
         return Result.ok(report.toMap());
     }
 
+    /**
+     * 存量正文重结构化（不重抓，用已存 content 重跑清洗/转换）
+     */
+    @Operation(summary = "存量重结构化", description = "用已入库的 content 重新清洗与结构化：剥离新浪尾部二维码/责编文案、东财声明块，旧文本转储剥导航页脚后按句分段；不发起任何网络请求")
+    @PostMapping("/ingest/renormalize")
+    public Result<Map<String, Object>> renormalize(@RequestBody(required = false) IngestRequest request) {
+        JwtUserDetails.getCurrentUser();
+        String source = request != null ? request.getSource() : null;
+        Integer limit = request != null && request.getLimit() != null ? request.getLimit() : 200;
+        NewsIngestService.IngestReport report = newsIngestService.renormalize(source, limit);
+        return Result.ok(report.toMap());
+    }
+
     /** 采集请求参数（source 亦可为来源展示名，如"东方财富"） */
     public static class IngestRequest {
         /** 数据源标识：wallstreetcn / sina / eastmoney，空为全部 */

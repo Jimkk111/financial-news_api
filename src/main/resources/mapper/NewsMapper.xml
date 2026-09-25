@@ -151,6 +151,22 @@
         LIMIT #{limit}
     </select>
 
+    <select id="selectRenormalizeCandidates" resultMap="BaseResultMap">
+        SELECT id, title, summary, content, publish_time, source, url, image_url, has_image
+        FROM news
+        WHERE deleted_at IS NULL
+          AND content IS NOT NULL
+          AND CHAR_LENGTH(content) &gt; 200
+          AND (content LIKE '%新浪财经APP%' OR content LIKE '%责任编辑%' OR content LIKE '%郑重声明%'
+               OR content LIKE '%热点栏目%'
+               OR (content_json IS NULL AND content NOT LIKE '%&lt;%'))
+        <if test="source != null">
+            AND source = #{source}
+        </if>
+        ORDER BY id DESC
+        LIMIT #{limit}
+    </select>
+
     <update id="updateContent">
         UPDATE news
         SET summary = #{summary},

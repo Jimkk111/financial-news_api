@@ -74,8 +74,36 @@ public final class ContentCodec {
         Element body = doc.body();
         List<Block> blocks = new ArrayList<>();
 
-        for (Element el : body.children()) {
-            blocks.addAll(parseElement(el));
+        // body 级子节点按序处理：无标签的裸文本（旧 Agent 时代的整页文本转储）也要成段
+        for (Node child : body.childNodes()) {
+            if (child instanceof TextNode textNode) {
+                String text = textNode.getWholeText().strip();
+                if (!text.isBlank()) {
+                    blocks.add(ParagraphBlock.builder().html(Entities.escape(text)).build());
+                }
+            } else if (child instanceof Element el) {
+                blocks.addAll(parseElement(el));
+            }
+        }
+        return blocks;
+    }
+
+    /**
+     * 将无结构的纯文本按句末标点聚合成段落块（每段约 150 字），用于旧文本转储的结构化
+     */
+    public static List<Block> fromPlainText(String text) {
+        if (text == null || text.isBlank()) return List.of();
+        List<Block> blocks = new ArrayList<>();
+        StringBuilder current = new StringBuilder();
+        for (String sentence : text.split("(?<=[。！？；])")) {
+            current.append(sentence);
+            if (current.length() >= 150) {
+                blocks.add(ParagraphBlock.builder().html(Entities.escape(current.toString().strip())).build());
+                current.setLength(0);
+            }
+        }
+        if (!current.isEmpty()) {
+            blocks.add(ParagraphBlock.builder().html(Entities.escape(current.toString().strip())).build());
         }
         return blocks;
     }
