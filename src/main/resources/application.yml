@@ -144,6 +144,11 @@ ai:
   model: ${AI_MODEL:mimo-v2.6-flash}
   max-tokens: ${AI_MAX_TOKENS:2000}
   temperature: ${AI_TEMPERATURE:0.7}
+  # 联网搜索（MiMo Web Search 插件，需服务商控制台开通；仅 mimo-v2.5 / mimo-v2.5-pro 支持）
+  web-search:
+    model: ${AI_WEB_SEARCH_MODEL:mimo-v2.5-pro}   # webSearch=true 时使用的模型
+    max-keyword: ${AI_WEB_SEARCH_MAX_KEYWORD:3}   # 每轮搜索并发关键词数，按次计费，控制成本
+    force-search: ${AI_WEB_SEARCH_FORCE:false}    # false=意图识别(模型自行判断)；true=强制搜索
 
 # 文件上传配置
 upload:

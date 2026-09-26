@@ -10,7 +10,9 @@ import com.financial.news.mapper.AiSessionMapper;
 import com.financial.news.service.ai.OpenAiCompatibleClient;
 import com.financial.news.service.ai.OpenAiCompatibleClient.ChatParam;
 import com.financial.news.service.ai.OpenAiCompatibleClient.ChatResult;
+import com.financial.news.service.ai.OpenAiCompatibleClient.Source;
 import com.financial.news.service.ai.OpenAiCompatibleClient.StreamCallback;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.financial.news.utils.IdGenerator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -45,6 +47,9 @@ public class AiService {
     private final AiSessionMapper aiSessionMapper;
     private final AiMessageMapper aiMessageMapper;
     private final OpenAiCompatibleClient aiClient;
+
+    /** sources 落库序列化（ai_messages.sources 存 JSON 数组字符串，前端历史回显直接可用） */
+    private static final ObjectMapper SOURCES_CODEC = new ObjectMapper();
 
     /** SSE 流式推送专用线程池，避免占用公共 ForkJoinPool 和请求线程 */
     private final java.util.concurrent.ExecutorService sseExecutor =
@@ -136,12 +141,14 @@ public class AiService {
         List<AiChatRequest.ChatMessage> sendMsgs = limitContextMessages(request.getMessages());
         saveCurrentUserMessage(session, sendMsgs);
 
+        boolean webSearch = Boolean.TRUE.equals(request.getWebSearch());
         // 调用 AI API（事务外）
-        ChatResult aiResult = callAi(toParams(sendMsgs));
+        ChatResult aiResult = callAi(toParams(sendMsgs, webSearch), webSearch);
 
         aiMessageMapper.insert(AiMessage.builder()
                 .sessionId(session.getId()).role("assistant")
                 .content(aiResult.content()).reasoningContent(aiResult.reasoning())
+                .sources(toSourcesJson(aiResult.sources()))
                 .build());
         touchSession(session, aiResult.content());
 
@@ -152,6 +159,9 @@ public class AiService {
         if (aiResult.reasoning() != null && !aiResult.reasoning().isBlank()) {
             result.put("reasoning", aiResult.reasoning());
         }
+        if (!aiResult.sources().isEmpty()) {
+            result.put("sources", aiResult.sources());
+        }
         return result;
     }
 
@@ -160,6 +170,7 @@ public class AiService {
      * <p>事件契约（均为 {@code data:} JSON）：</p>
      * <ul>
      *   <li>{@code {"sessionId":"..."}} —— 请求受理即发送（提交响应头，前端可立即感知）</li>
+     *   <li>{@code {"sources":[...]}} —— 联网搜索引用来源，随上游首包一次性到达（可有多批）</li>
      *   <li>{@code {"reasoning":"增量"}} —— 思考链增量，正文开始前持续到达</li>
      *   <li>{@code {"content":"增量"}} —— 正文增量</li>
      *   <li>{@code {"error":"..."}} —— 上游返回了内容但正文为空等业务失败，随后仍会发 [DONE]</li>
@@ -179,8 +190,9 @@ public class AiService {
                 // 保存本轮用户消息。请求中的其余消息仅作为 AI 上下文，避免历史消息重复入库。
                 List<AiChatRequest.ChatMessage> sendMsgs = limitContextMessages(request.getMessages());
                 saveCurrentUserMessage(session, sendMsgs);
+                boolean webSearch = Boolean.TRUE.equals(request.getWebSearch());
 
-                // 心跳兜底：正常情况下 reasoning/content 增量本身就是持续数据流
+                // 心跳兜底：正常情况下 reasoning/content/sources 增量本身就是持续数据流
                 heartbeat = heartbeatScheduler.scheduleAtFixedRate(() -> {
                     try {
                         emitter.send(SseEmitter.event().comment("keep-alive"));
@@ -191,7 +203,8 @@ public class AiService {
 
                 StringBuilder reasoning = new StringBuilder();
                 StringBuilder content = new StringBuilder();
-                aiClient.stream(toParams(sendMsgs), new StreamCallback() {
+                List<Source> sources = new ArrayList<>();
+                aiClient.stream(toParams(sendMsgs, webSearch), new StreamCallback() {
                     @Override
                     public void onReasoning(String delta) {
                         reasoning.append(delta);
@@ -203,7 +216,13 @@ public class AiService {
                         content.append(delta);
                         sendEvent(emitter, Map.of("content", delta));
                     }
-                });
+
+                    @Override
+                    public void onSources(List<Source> chunkSources) {
+                        sources.addAll(chunkSources);
+                        sendEvent(emitter, Map.of("sources", chunkSources));
+                    }
+                }, webSearch);
 
                 if (content.toString().isBlank()) {
                     // 思考型模型可能耗尽 max_tokens 只剩思考链：以流内 error 事件告知前端，连接正常收尾
@@ -212,6 +231,7 @@ public class AiService {
                     aiMessageMapper.insert(AiMessage.builder()
                             .sessionId(session.getId()).role("assistant")
                             .content(content.toString()).reasoningContent(reasoning.toString())
+                            .sources(toSourcesJson(sources))
                             .build());
                     touchSession(session, content.toString());
                 }
@@ -251,9 +271,18 @@ public class AiService {
         aiSessionMapper.updateById(session);
     }
 
-    /** 项目消息 → 直连客户端入参（role 归一小写） */
-    private List<ChatParam> toParams(List<AiChatRequest.ChatMessage> messages) {
+    /**
+     * 项目消息 → 直连客户端入参（role 归一小写）。
+     * 联网搜索时在首位注入系统提示：当前日期（搜索时效定向）+ 引用编号要求。
+     */
+    private List<ChatParam> toParams(List<AiChatRequest.ChatMessage> messages, boolean webSearch) {
         List<ChatParam> params = new ArrayList<>();
+        if (webSearch) {
+            String today = java.time.LocalDate.now().toString();
+            params.add(new ChatParam("system",
+                    "今天是 " + today + "。你是财经资讯助手，回答基于联网搜索结果，"
+                            + "在引用信息处标注来源编号（如[1][2]），不要编造来源。"));
+        }
         for (AiChatRequest.ChatMessage m : messages) {
             String role = m.getRole() == null ? "user" : m.getRole().toLowerCase();
             params.add(new ChatParam(role, m.getContent()));
@@ -264,10 +293,10 @@ public class AiService {
     /**
      * 调用 AI（非流式）。上游异常统一映射为 AI_SERVICE_UNAVAILABLE，不透出内部实现细节。
      */
-    private ChatResult callAi(List<ChatParam> params) {
+    private ChatResult callAi(List<ChatParam> params, boolean webSearch) {
         ChatResult result;
         try {
-            result = aiClient.chat(params);
+            result = aiClient.chat(params, webSearch);
         } catch (Exception e) {
             log.error("AI API 调用失败: {}", e.getMessage());
             throw new BusinessException(ErrorCode.AI_SERVICE_UNAVAILABLE);
@@ -277,6 +306,19 @@ public class AiService {
             throw new BusinessException(ErrorCode.AI_SERVICE_UNAVAILABLE);
         }
         return result;
+    }
+
+    /** sources 落库为 JSON 数组字符串；空列表存 null（列可空，历史数据不受影响） */
+    private String toSourcesJson(List<Source> sources) {
+        if (sources == null || sources.isEmpty()) {
+            return null;
+        }
+        try {
+            return SOURCES_CODEC.writeValueAsString(sources);
+        } catch (Exception e) {
+            log.warn("sources 序列化失败，按空存储: {}", e.getMessage());
+            return null;
+        }
     }
 
     private List<AiChatRequest.ChatMessage> limitContextMessages(List<AiChatRequest.ChatMessage> messages) {

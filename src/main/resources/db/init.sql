@@ -210,6 +210,7 @@ CREATE TABLE `ai_messages` (
     `role` VARCHAR(20) NOT NULL COMMENT '角色：user/assistant/system',
     `content` TEXT NOT NULL COMMENT '消息内容',
     `reasoning_content` MEDIUMTEXT DEFAULT NULL COMMENT '思考型模型的思考链（reasoning_content），仅 assistant 消息',
+    `sources` JSON DEFAULT NULL COMMENT '联网搜索引用来源（JSON 数组：title/url/summary/siteName/publishTime/logoUrl）',
     `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     PRIMARY KEY (`id`),
     KEY `idx_session_id` (`session_id`),
