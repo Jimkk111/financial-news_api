@@ -5,6 +5,10 @@ import com.financial.news.entity.AiMessage;
 import com.financial.news.entity.AiSession;
 import com.financial.news.mapper.AiMessageMapper;
 import com.financial.news.mapper.AiSessionMapper;
+import com.financial.news.service.ai.OpenAiCompatibleClient;
+import com.financial.news.service.ai.OpenAiCompatibleClient.ChatParam;
+import com.financial.news.service.ai.OpenAiCompatibleClient.ChatResult;
+import com.financial.news.service.ai.OpenAiCompatibleClient.StreamCallback;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -17,13 +21,15 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.Mockito.doAnswer;
-import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -40,6 +46,9 @@ class AiServiceTest {
     @Mock
     private AiMessageMapper aiMessageMapper;
 
+    @Mock
+    private OpenAiCompatibleClient aiClient;
+
     private AiService aiService;
     private AiSession session;
 
@@ -51,16 +60,16 @@ class AiServiceTest {
                 .userId(USER_ID)
                 .build();
         when(aiSessionMapper.selectBySessionId(SESSION_ID)).thenReturn(session);
-        aiService = org.mockito.Mockito.spy(new AiService(aiSessionMapper, aiMessageMapper));
+        aiService = new AiService(aiSessionMapper, aiMessageMapper, aiClient);
     }
 
     @Test
     void chatPersistsOnlyCurrentUserMessageForEachRequest() {
-        List<List<AiChatRequest.ChatMessage>> contexts = new ArrayList<>();
-        doAnswer(invocation -> {
+        List<List<ChatParam>> contexts = new ArrayList<>();
+        when(aiClient.chat(anyList(), anyBoolean())).thenAnswer(invocation -> {
             contexts.add(new ArrayList<>(invocation.getArgument(0)));
-            return "reply-" + contexts.size();
-        }).when(aiService).callAiApi(anyList());
+            return new ChatResult("reply-" + contexts.size(), "", List.of());
+        });
 
         aiService.chat(USER_ID, request(
                 userMessage("第一轮问题"),
@@ -82,8 +91,8 @@ class AiServiceTest {
         assertEquals(List.of("第二轮问题", "reply-1", "第三轮问题", "reply-2"),
                 savedMessages.stream().map(AiMessage::getContent).toList());
         assertEquals(List.of(3, 5), contexts.stream().map(List::size).toList());
-        assertEquals("第一轮问题", contexts.get(1).get(0).getContent());
-        assertEquals("reply-1", contexts.get(1).get(3).getContent());
+        assertEquals("第一轮问题", contexts.get(1).get(0).content());
+        assertEquals("reply-1", contexts.get(1).get(3).content());
     }
 
     @Test
@@ -96,7 +105,11 @@ class AiServiceTest {
             }
             return 1;
         }).when(aiMessageMapper).insert(any(AiMessage.class));
-        doAnswer(invocation -> "stream-reply").when(aiService).callAiApi(anyList());
+        doAnswer(invocation -> {
+            StreamCallback callback = invocation.getArgument(1);
+            callback.onContent("stream-reply");
+            return new ChatResult("stream-reply", "", List.of());
+        }).when(aiClient).stream(anyList(), any(StreamCallback.class), anyBoolean());
 
         SseEmitter emitter = aiService.chatStream(USER_ID, request(
                 userMessage("历史问题"),
@@ -104,12 +117,32 @@ class AiServiceTest {
                 userMessage("当前问题")));
 
         assertTrue(assistantSaved.await(5, TimeUnit.SECONDS));
-        assertTrue(emitter != null);
+        assertNotNull(emitter);
 
         ArgumentCaptor<AiMessage> messageCaptor = ArgumentCaptor.forClass(AiMessage.class);
         verify(aiMessageMapper, times(2)).insert(messageCaptor.capture());
         assertEquals(List.of("当前问题", "stream-reply"),
                 messageCaptor.getAllValues().stream().map(AiMessage::getContent).toList());
+    }
+
+    @Test
+    void chatWithWebSearchInjectsDateSystemPromptAndPassesFlag() {
+        AtomicReference<Boolean> flag = new AtomicReference<>();
+        List<ChatParam> params = new ArrayList<>();
+        when(aiClient.chat(anyList(), anyBoolean())).thenAnswer(invocation -> {
+            params.addAll(invocation.getArgument(0));
+            flag.set(invocation.getArgument(1));
+            return new ChatResult("搜索回复", "", List.of());
+        });
+
+        AiChatRequest req = request(userMessage("今天A股行情"));
+        req.setWebSearch(true);
+        aiService.chat(USER_ID, req);
+
+        assertTrue(flag.get());
+        assertEquals("system", params.get(0).role());
+        assertTrue(params.get(0).content().contains("今天是"));
+        assertEquals("user", params.get(1).role());
     }
 
     private AiChatRequest request(AiChatRequest.ChatMessage... messages) {

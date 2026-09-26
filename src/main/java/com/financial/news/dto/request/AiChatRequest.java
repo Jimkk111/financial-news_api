@@ -24,6 +24,9 @@ public class AiChatRequest {
     @Schema(description = "是否流式返回", example = "false")
     private Boolean stream;
 
+    @Schema(description = "是否启用联网搜索（MiMo Web Search 插件，需服务商控制台开通）", example = "false")
+    private Boolean webSearch;
+
     @Data
     @Schema(description = "对话消息")
     public static class ChatMessage {

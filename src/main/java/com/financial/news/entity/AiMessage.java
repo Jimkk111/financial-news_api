@@ -33,5 +33,8 @@ public class AiMessage {
     /** 思考型模型的思考链（reasoning_content），仅 assistant 消息可能携带 */
     private String reasoningContent;
 
+    /** 联网搜索引用来源（JSON 数组字符串：title/url/summary/siteName/publishTime/logoUrl） */
+    private String sources;
+
     private LocalDateTime createdAt;
 }

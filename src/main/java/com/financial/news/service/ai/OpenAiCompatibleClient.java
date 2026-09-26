@@ -17,6 +17,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -40,8 +41,12 @@ public class OpenAiCompatibleClient {
     /** 对话入参：role 固定小写（user/assistant/system），内容为纯文本 */
     public record ChatParam(String role, String content) {}
 
-    /** 一次完成的对话结果：正文与思考链（思考链可能为空，取决于模型是否思考） */
-    public record ChatResult(String content, String reasoning) {}
+    /** 搜索引用来源（MiMo web_search 的 url_citation 注解归一化） */
+    public record Source(String title, String url, String summary, String siteName,
+                         String publishTime, String logoUrl) {}
+
+    /** 一次完成的对话结果：正文、思考链与搜索来源（后两者可能为空） */
+    public record ChatResult(String content, String reasoning, List<Source> sources) {}
 
     /**
      * 流式回调。回调内抛出的任何异常都会中止上游请求并以该异常结束 {@link #stream}，
@@ -53,6 +58,9 @@ public class OpenAiCompatibleClient {
 
         /** 正文增量（content） */
         default void onContent(String delta) {}
+
+        /** 搜索引用来源（web_search 首包 annotations，一次性全量） */
+        default void onSources(List<Source> sources) {}
     }
 
     /** 上游调用失败（网络错误 / 非 2xx / 流中断），message 已脱敏为可记日志的摘要 */
@@ -72,6 +80,11 @@ public class OpenAiCompatibleClient {
     @Value("${ai.model:gpt-3.5-turbo}") private String model;
     @Value("${ai.max-tokens:2000}") private int maxTokens;
     @Value("${ai.temperature:0.7}") private double temperature;
+    /** 联网搜索：仅 mimo-v2.5 / mimo-v2.5-pro 支持，与默认对话模型可不同 */
+    @Value("${ai.web-search.model:mimo-v2.5-pro}") private String webSearchModel;
+    @Value("${ai.web-search.max-keyword:3}") private int webSearchMaxKeyword;
+    /** false=意图识别（模型自行判断是否搜索，省钱）；true=强制每次搜索 */
+    @Value("${ai.web-search.force-search:false}") private boolean webSearchForce;
 
     private final ObjectMapper mapper = new ObjectMapper();
     private volatile OkHttpClient httpClient;
@@ -95,9 +108,11 @@ public class OpenAiCompatibleClient {
     /**
      * 非流式对话，阻塞至完整响应。
      * callTimeout 60s 覆盖整个请求周期，与旧 langchain4j 非流式超时一致。
+     *
+     * @param webSearch true 时启用 MiMo Web Search 插件（tools: web_search）
      */
-    public ChatResult chat(List<ChatParam> messages) {
-        Request request = buildRequest(messages, false);
+    public ChatResult chat(List<ChatParam> messages, boolean webSearch) {
+        Request request = buildRequest(messages, false, webSearch);
         OkHttpClient callScoped = client().newBuilder()
                 .callTimeout(60, TimeUnit.SECONDS)
                 .build();
@@ -110,7 +125,8 @@ public class OpenAiCompatibleClient {
                     .path("choices").path(0).path("message");
             return new ChatResult(
                     message.path("content").asText(""),
-                    message.path("reasoning_content").asText(""));
+                    message.path("reasoning_content").asText(""),
+                    parseAnnotations(message.path("annotations")));
         } catch (IOException e) {
             throw new AiRemoteException("AI 接口调用失败: " + rootMessage(e), e);
         }
@@ -120,12 +136,13 @@ public class OpenAiCompatibleClient {
      * 流式对话，阻塞至生成完成；思考链与正文增量通过 callback 逐段推送。
      * 上游失败或 callback 抛异常时中止请求并以异常结束。
      */
-    public ChatResult stream(List<ChatParam> messages, StreamCallback callback) {
-        Request request = buildRequest(messages, true);
+    public ChatResult stream(List<ChatParam> messages, StreamCallback callback, boolean webSearch) {
+        Request request = buildRequest(messages, true, webSearch);
         CountDownLatch done = new CountDownLatch(1);
         AtomicReference<Throwable> failure = new AtomicReference<>();
         StringBuilder content = new StringBuilder();
         StringBuilder reasoning = new StringBuilder();
+        List<Source> sources = new ArrayList<>();
 
         EventSourceListener listener = new EventSourceListener() {
             @Override
@@ -147,6 +164,12 @@ public class OpenAiCompatibleClient {
                     if (!contentDelta.isEmpty()) {
                         content.append(contentDelta);
                         callback.onContent(contentDelta);
+                    }
+                    // web_search 开启时搜索来源随首个含 annotations 的分片一次性返回
+                    List<Source> chunkSources = parseAnnotations(delta.path("annotations"));
+                    if (!chunkSources.isEmpty()) {
+                        sources.addAll(chunkSources);
+                        callback.onSources(List.copyOf(chunkSources));
                     }
                 } catch (Exception e) {
                     // callback 抛异常（如 SSE 客户端已断连）或响应体畸形：中止上游，向调用方透传
@@ -196,15 +219,23 @@ public class OpenAiCompatibleClient {
         if (t != null) {
             throw new AiRemoteException("AI 流式调用失败: " + rootMessage(t), t);
         }
-        return new ChatResult(content.toString(), reasoning.toString());
+        return new ChatResult(content.toString(), reasoning.toString(), List.copyOf(sources));
     }
 
-    private Request buildRequest(List<ChatParam> messages, boolean stream) {
+    private Request buildRequest(List<ChatParam> messages, boolean stream, boolean webSearch) {
         ObjectNode body = mapper.createObjectNode();
-        body.put("model", model);
+        body.put("model", webSearch ? webSearchModel : model);
         body.put("stream", stream);
         body.put("max_tokens", maxTokens);
         body.put("temperature", temperature);
+        if (webSearch) {
+            // MiMo Web Search 插件：tools.web_search + tool_choice=auto
+            ObjectNode tool = body.putArray("tools").addObject();
+            tool.put("type", "web_search");
+            tool.put("max_keyword", webSearchMaxKeyword);
+            tool.put("force_search", webSearchForce);
+            body.put("tool_choice", "auto");
+        }
         ArrayNode arr = body.putArray("messages");
         for (ChatParam m : messages) {
             ObjectNode node = arr.addObject();
@@ -217,6 +248,36 @@ public class OpenAiCompatibleClient {
                 .header("Accept", stream ? "text/event-stream" : "application/json")
                 .post(RequestBody.create(body.toString(), JSON))
                 .build();
+    }
+
+    /**
+     * 归一化 web_search 引用来源。标准形态为
+     * {@code {type:"url_citation", url_citation:{url,title,summary,site_name,publish_time,logo_url}}}，
+     * 部分实现会拍平在注解节点上，两种都兼容。
+     */
+    private List<Source> parseAnnotations(JsonNode annotations) {
+        if (annotations == null || !annotations.isArray() || annotations.isEmpty()) {
+            return List.of();
+        }
+        List<Source> result = new ArrayList<>();
+        for (JsonNode ann : annotations) {
+            JsonNode c = ann.path("url_citation");
+            if (c.isMissingNode() || c.isNull()) {
+                c = ann;
+            }
+            String url = c.path("url").asText("");
+            if (url.isEmpty()) {
+                continue;
+            }
+            result.add(new Source(
+                    c.path("title").asText(""),
+                    url,
+                    c.path("summary").asText(""),
+                    c.path("site_name").asText(""),
+                    c.path("publish_time").asText(""),
+                    c.path("logo_url").asText("")));
+        }
+        return result;
     }
 
     private String readBodyLimited(Response response) {
