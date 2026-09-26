@@ -1,6 +1,7 @@
 package com.financial.news.config;
 
 import com.financial.news.security.JwtAuthenticationFilter;
+import jakarta.servlet.DispatcherType;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
@@ -40,6 +41,10 @@ public class SecurityConfig {
             .csrf(AbstractHttpConfigurer::disable)
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(auth -> auth
+                // ASYNC/ERROR 派发放行：SseEmitter 完成/出错后容器会派发回过滤链，
+                // 派发线程无 SecurityContext，若照常鉴权会 Access Denied 且响应已提交无法渲染，
+                // 每次流式请求结束都刷两条 ERROR 噪音（真实请求已在 REQUEST 派发上鉴权过）
+                .dispatcherTypeMatchers(DispatcherType.ASYNC, DispatcherType.ERROR).permitAll()
                 // 错误页放行：Boot 默认在 ERROR 转发上也跑安全过滤器，
                 // 不放行会让 sendError 触发的 /error 再次被拒，异常逃逸到 Tomcat
                 .requestMatchers("/error").permitAll()

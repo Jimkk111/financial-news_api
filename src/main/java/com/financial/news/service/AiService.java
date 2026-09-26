@@ -182,6 +182,11 @@ public class AiService {
         SseEmitter emitter = new SseEmitter(300000L); // 5分钟超时
         CompletableFuture.runAsync(() -> {
             ScheduledFuture<?> heartbeat = null;
+            long startMs = System.currentTimeMillis();
+            java.util.concurrent.atomic.AtomicLong firstEventMs = new java.util.concurrent.atomic.AtomicLong(0);
+            Runnable markFirstEvent = () -> firstEventMs.compareAndSet(0, System.currentTimeMillis());
+            // 声明在 try 外：客户端断开时 catch 里也要统计已收正文量
+            StringBuilder content = new StringBuilder();
             try {
                 AiSession session = resolveSession(userId, request.getSessionId());
                 // 早冲刷：受理即回传 sessionId 提交响应头，避免长时间 pending 且前端空闲计时从此时起算
@@ -191,34 +196,37 @@ public class AiService {
                 List<AiChatRequest.ChatMessage> sendMsgs = limitContextMessages(request.getMessages());
                 saveCurrentUserMessage(session, sendMsgs);
                 boolean webSearch = Boolean.TRUE.equals(request.getWebSearch());
+                log.info("AI 流式对话开始: session={}, webSearch={}", session.getSessionId(), webSearch);
 
-                // 心跳兜底：正常情况下 reasoning/content/sources 增量本身就是持续数据流
+                // 心跳兜底：用 data 事件而非 SSE 注释行，防中间层（网关/CDN）吞注释导致前端空闲超时
                 heartbeat = heartbeatScheduler.scheduleAtFixedRate(() -> {
                     try {
-                        emitter.send(SseEmitter.event().comment("keep-alive"));
+                        emitter.send(SseEmitter.event().data(Map.of("heartbeat", true)));
                     } catch (Exception e) {
                         log.debug("SSE 心跳发送失败（客户端可能已断开）: {}", e.getMessage());
                     }
                 }, HEARTBEAT_INTERVAL_SECONDS, HEARTBEAT_INTERVAL_SECONDS, TimeUnit.SECONDS);
 
                 StringBuilder reasoning = new StringBuilder();
-                StringBuilder content = new StringBuilder();
                 List<Source> sources = new ArrayList<>();
                 aiClient.stream(toParams(sendMsgs, webSearch), new StreamCallback() {
                     @Override
                     public void onReasoning(String delta) {
+                        markFirstEvent.run();
                         reasoning.append(delta);
                         sendEvent(emitter, Map.of("reasoning", delta));
                     }
 
                     @Override
                     public void onContent(String delta) {
+                        markFirstEvent.run();
                         content.append(delta);
                         sendEvent(emitter, Map.of("content", delta));
                     }
 
                     @Override
                     public void onSources(List<Source> chunkSources) {
+                        markFirstEvent.run();
                         sources.addAll(chunkSources);
                         sendEvent(emitter, Map.of("sources", chunkSources));
                     }
@@ -237,8 +245,26 @@ public class AiService {
                 }
                 emitter.send(SseEmitter.event().data("[DONE]"));
                 emitter.complete();
+                log.info("AI 流式对话完成: session={}, webSearch={}, 首 token {}ms, 正文 {} 字, 思考链 {} 字, 来源 {} 条, 总耗时 {}ms",
+                        session.getSessionId(), webSearch,
+                        firstEventMs.get() == 0 ? -1 : firstEventMs.get() - startMs,
+                        content.length(), reasoning.length(), sources.size(),
+                        System.currentTimeMillis() - startMs);
+            } catch (SseClientDisconnectedException e) {
+                // 设计内行为（用户停止生成/离开页面）：上游已随之中止，不按错误处理，
+                // 也不 completeWithError——对已断连接派发 ERROR 只会产生容器噪音日志
+                log.info("AI 流式对话客户端断开, 已中止上游生成: 首 token {}ms, 已收正文 {} 字, 总耗时 {}ms",
+                        firstEventMs.get() == 0 ? -1 : firstEventMs.get() - startMs,
+                        content.length(), System.currentTimeMillis() - startMs);
+                try {
+                    emitter.complete();
+                } catch (Exception ignore) {
+                    // 连接已死，忽略
+                }
             } catch (Exception e) {
-                log.error("AI 流式对话异常", e);
+                log.error("AI 流式对话异常: 首 token {}ms, 总耗时 {}ms",
+                        firstEventMs.get() == 0 ? -1 : firstEventMs.get() - startMs,
+                        System.currentTimeMillis() - startMs, e);
                 emitter.completeWithError(e);
             } finally {
                 if (heartbeat != null) {
@@ -249,15 +275,22 @@ public class AiService {
         return emitter;
     }
 
+    /** 客户端断开标记：sendEvent 失败时抛出，用于与上游真实异常区分（设计内行为，不按 ERROR 处理） */
+    private static class SseClientDisconnectedException extends RuntimeException {
+        SseClientDisconnectedException(String message, Throwable cause) {
+            super(message, cause);
+        }
+    }
+
     /**
      * 发送 SSE data 事件；客户端断开后的 send 失败以运行时异常抛出，
-     * 经流式 callback 传播中止上游生成（停止计费），由外层统一 completeWithError。
+     * 经流式 callback 传播中止上游生成（停止计费），由外层统一处理。
      */
     private void sendEvent(SseEmitter emitter, Object payload) {
         try {
             emitter.send(SseEmitter.event().data(payload));
         } catch (IOException | IllegalStateException e) {
-            throw new IllegalStateException("SSE 客户端已断开: " + e.getMessage(), e);
+            throw new SseClientDisconnectedException("SSE 客户端已断开: " + e.getMessage(), e);
         }
     }
 
