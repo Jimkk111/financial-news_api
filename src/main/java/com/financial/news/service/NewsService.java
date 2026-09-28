@@ -6,6 +6,7 @@ import com.financial.news.common.Result;
 import com.financial.news.dto.response.NewsDetailVO;
 import com.financial.news.entity.*;
 import com.financial.news.mapper.*;
+import com.financial.news.model.content.Block;
 import com.financial.news.utils.ContentCodec;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -75,10 +76,12 @@ public class NewsService {
         NewsDetailVO vo = new NewsDetailVO();
         // Spring BeanUtils 浅拷贝（Hutool BeanUtil 深拷贝会把 Block 接口降级为 Map 导致转换异常）
         BeanUtils.copyProperties(news, vo);
-        // 存量新闻未迁移时，响应中实时从 HTML 转换（不落库，由迁移任务负责）
-        if (vo.getContentJson() == null && vo.getContent() != null) {
-            vo.setContentJson(ContentCodec.fromHtml(vo.getContent()));
+        // 严格 JSON 契约：content 即块数组；content_json 为旧格式或缺失时从 HTML 现场转换兜底
+        List<Block> blocks = news.getContentJson();
+        if (blocks == null || blocks.isEmpty()) {
+            blocks = news.getContent() != null ? ContentCodec.fromHtml(news.getContent()) : List.of();
         }
+        vo.setContent(ContentCodec.normalize(blocks));
         vo.setTags(getNewsTags(id));
         if (news.getCategoryId() != null) {
             vo.setCategory(categoryMapper.selectById(news.getCategoryId()));

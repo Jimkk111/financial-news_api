@@ -11,7 +11,6 @@ import com.financial.news.mapper.NewsMapper;
 import com.financial.news.mapper.NewsTagMapper;
 import com.financial.news.mapper.TagMapper;
 import com.financial.news.model.content.Block;
-import com.financial.news.model.content.ParagraphBlock;
 import com.financial.news.service.NewsService;
 import com.financial.news.utils.ContentCodec;
 import com.financial.news.utils.FingerprintUtil;
@@ -392,16 +391,9 @@ public class NewsIngestService {
                     newContent = cleanContentHtml(content);
                     blocks = ContentCodec.normalize(ContentCodec.fromHtml(newContent));
                 } else {
-                    String text = cleanLegacyTextDump(content);
-                    blocks = ContentCodec.fromPlainText(text);
+                    blocks = ContentCodec.fromPlainText(cleanLegacyTextDump(content));
                     // content 列契约是 HTML：纯文本也按段包裹，避免与无标签旧转储的筛选条件再次混淆
-                    StringBuilder sb = new StringBuilder();
-                    for (Block b : blocks) {
-                        if (b instanceof ParagraphBlock p) {
-                            sb.append("<p>").append(p.getHtml()).append("</p>\n");
-                        }
-                    }
-                    newContent = sb.toString();
+                    newContent = ContentCodec.blocksToHtml(blocks);
                 }
                 if (blocks.isEmpty()) {
                     stat.rejected++;
@@ -437,7 +429,74 @@ public class NewsIngestService {
         return report;
     }
 
-    /** 最近 N 篇文章的指纹，用于本轮近似去重比对（须为可变列表：新入库的指纹会追加进来） */    private List<Long> loadRecentFingerprints() {
+    /** 单条正文的契约转换：HTML 走清洗+白名单提取，无标签旧转储先剥壳再分段 */
+    private Map.Entry<String, List<Block>> convertToBlocks(String content) {
+        if (content.contains("<")) {
+            String cleaned = cleanContentHtml(content);
+            return Map.entry(cleaned, ContentCodec.normalize(ContentCodec.fromHtml(cleaned)));
+        }
+        List<Block> blocks = ContentCodec.fromPlainText(cleanLegacyTextDump(content));
+        return Map.entry(ContentCodec.blocksToHtml(blocks), blocks);
+    }
+
+    /**
+     * 块契约全量迁移：content(HTML) → 严格 JSON 契约块，按 id 分批推进至结束
+     * <p>content_json 从上一代契约（段落装 HTML）切换后的存量翻新，幂等可重跑；
+     * 同时重算 summary，image 等其余列不动。</p>
+     */
+    public IngestReport migrateContentJson(Integer limit) {
+        int per = limit != null ? Math.min(Math.max(limit, 1), 500) : 500;
+        IngestReport report = new IngestReport();
+        report.runId = "migrate-" + System.currentTimeMillis();
+        SourceStat stat = report.statOf("news");
+        Integer afterId = null;
+        while (true) {
+            List<News> batch = newsMapper.selectMigrationBatch(afterId, per);
+            if (batch.isEmpty()) {
+                break;
+            }
+            for (News news : batch) {
+                afterId = news.getId();
+                if (news.getContent() == null || news.getContent().isBlank()) {
+                    continue;
+                }
+                long started = System.currentTimeMillis();
+                try {
+                    var converted = convertToBlocks(news.getContent());
+                    List<Block> blocks = converted.getValue();
+                    if (blocks == null || blocks.isEmpty()) {
+                        stat.rejected++;
+                        audit(report.runId, "migrate", news.getUrl(), news.getTitle(),
+                                CrawlAudit.REJECTED, "迁移后无内容", null, news.getPublishTime(), started);
+                        continue;
+                    }
+                    String summary = cleanSummary(ContentCodec.toPlainText(blocks));
+                    if (summary != null && summary.length() > 200) {
+                        summary = summary.substring(0, 200);
+                    }
+                    newsMapper.updateContent(News.builder()
+                            .id(news.getId())
+                            .summary(summary)
+                            .content(converted.getKey())
+                            .contentJson(blocks)
+                            .imageUrl(news.getImageUrl())
+                            .hasImage(news.getHasImage())
+                            .build());
+                    stat.saved++;
+                } catch (Exception e) {
+                    stat.failed++;
+                    audit(report.runId, "migrate", news.getUrl(), news.getTitle(),
+                            CrawlAudit.FAILED, "迁移失败:" + safeMessage(e), null, news.getPublishTime(), started);
+                }
+            }
+        }
+        report.finishedAt = LocalDateTime.now();
+        log.info("块契约迁移完成 {}: {}", report.runId, report.summary());
+        return report;
+    }
+
+    /** 最近 N 篇文章的指纹，用于本轮近似去重比对（须为可变列表：新入库的指纹会追加进来） */
+    private List<Long> loadRecentFingerprints() {
         return newsMapper.selectRecentFingerprints(recentFingerprintScan)
                 .stream()
                 .map(News::getContentFingerprint)

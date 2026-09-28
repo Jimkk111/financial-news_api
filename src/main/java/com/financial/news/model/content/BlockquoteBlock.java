@@ -8,13 +8,13 @@ import lombok.NoArgsConstructor;
 import java.util.List;
 
 /**
- * 段落块：行内节点序列（无 HTML 字符串，富文本由 marks 表达）
+ * 引用块：唯一可递归嵌套块级内容的块
  */
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class ParagraphBlock implements Block {
+public class BlockquoteBlock implements Block {
 
-    private List<InlineNode> children;
+    private List<Block> children;
 }

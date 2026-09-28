@@ -167,6 +167,18 @@
         LIMIT #{limit}
     </select>
 
+    <select id="selectMigrationBatch" resultMap="BaseResultMap">
+        SELECT id, title, summary, content, publish_time, source, url, image_url, has_image
+        FROM news
+        WHERE deleted_at IS NULL
+          AND content IS NOT NULL
+          <if test="afterId != null">
+              AND id &gt; #{afterId}
+          </if>
+        ORDER BY id ASC
+        LIMIT #{limit}
+    </select>
+
     <update id="updateContent">
         UPDATE news
         SET summary = #{summary},

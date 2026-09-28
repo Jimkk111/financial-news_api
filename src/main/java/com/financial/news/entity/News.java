@@ -1,6 +1,8 @@
 package com.financial.news.entity;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.financial.news.model.content.Block;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -32,10 +34,12 @@ public class News {
     /** 摘要 */
     private String summary;
 
-    /** 正文内容（旧 HTML，过渡期保留） */
+    /** 正文内容（旧 HTML，遗留导出用途；API 不再外发） */
+    @JsonIgnore
     private String content;
 
     /** 正文内容（块级 JSON，新契约；列表查询排除列后为 null 不输出） */
+    @JsonProperty("content")
     @JsonInclude(JsonInclude.Include.NON_NULL)
     private List<Block> contentJson;
 

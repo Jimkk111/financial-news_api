@@ -22,10 +22,8 @@ public class NewsDetailVO {
     private Integer id;
     private String title;
     private String summary;
-    private String content;
-
-    @JsonInclude(JsonInclude.Include.NON_NULL)
-    private List<Block> contentJson;
+    /** 正文（块级 JSON 数组，严格契约：content 即块，无 HTML 字符串） */
+    private List<Block> content;
 
     private LocalDateTime publishTime;
     private String source;

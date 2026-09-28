@@ -1,25 +1,22 @@
 package com.financial.news.model.content;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
 /**
- * 视频块
+ * 视频块：src 必填（http/https），poster 可选
  */
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
+@JsonInclude(JsonInclude.Include.NON_NULL)
 public class VideoBlock implements Block {
 
-    @Override
-    public String getType() { return "video"; }
+    private String src;
 
-    /** 视频 URL */
-    private String url;
-
-    /** 封面图 URL（可选） */
     private String poster;
 }
