@@ -5,8 +5,10 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.util.List;
+
 /**
- * 标题块（h1-h6）
+ * 标题块：级别 1-3（schema 上限），内容为行内节点序列
  */
 @Data
 @Builder
@@ -14,12 +16,7 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 public class HeadingBlock implements Block {
 
-    @Override
-    public String getType() { return "heading"; }
+    private Integer level;
 
-    /** 标题等级 1-6 */
-    private int level;
-
-    /** 标题文本 */
-    private String text;
+    private List<InlineNode> children;
 }

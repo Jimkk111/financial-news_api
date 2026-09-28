@@ -80,6 +80,11 @@ public interface NewsMapper {
     List<News> selectRenormalizeCandidates(@Param("source") String source, @Param("limit") int limit);
 
     /**
+     * 契约迁移批次：按 id 升序取待迁移记录（content 非空的全部记录）
+     */
+    List<News> selectMigrationBatch(@Param("afterId") Integer afterId, @Param("limit") int limit);
+
+    /**
      * 回填更新正文相关列（summary/content/content_json/image_url/has_image），其余列不动
      */
     int updateContent(News news);

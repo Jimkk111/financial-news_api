@@ -57,12 +57,13 @@ public class DraftService {
      */
     @Transactional
     public Draft createDraft(Integer userId, DraftCreateRequest request) {
+        List<Block> blocks = resolveContent(request.getContentJson(), request.getContent());
         Draft draft = Draft.builder()
                 .id(IdGenerator.generateDraftId())
                 .userId(userId)
                 .title(request.getTitle())
-                .content(request.getContent())
-                .contentJson(resolveContentJson(request.getContentJson(), request.getContent()))
+                .content(blocksToLegacyHtml(blocks))
+                .contentJson(blocks)
                 .coverImage(request.getCoverImage())
                 .categoryId(request.getCategoryId())
                 .status("draft")
@@ -98,9 +99,10 @@ public class DraftService {
             throw new BusinessException(ErrorCode.DRAFT_ALREADY_PUBLISHED);
         }
         if (request.getTitle() != null) draft.setTitle(request.getTitle());
-        if (request.getContent() != null) draft.setContent(request.getContent());
-        if (request.getContentJson() != null) {
-            draft.setContentJson(ContentCodec.normalize(request.getContentJson()));
+        if (hasContentUpdate(request)) {
+            List<Block> blocks = resolveContent(request.getContentJson(), request.getContent());
+            draft.setContentJson(blocks);
+            draft.setContent(blocksToLegacyHtml(blocks));
         }
         if (request.getCoverImage() != null) draft.setCoverImage(request.getCoverImage());
         if (request.getCategoryId() != null) draft.setCategoryId(request.getCategoryId());
@@ -135,7 +137,7 @@ public class DraftService {
 
         List<Block> contentJson = draft.getContentJson() != null
                 ? draft.getContentJson()
-                : ContentCodec.fromHtml(draft.getContent());
+                : ContentCodec.fromHtml(draft.getContent() == null ? "" : draft.getContent());
 
         News news = News.builder()
                 .title(draft.getTitle())
@@ -203,12 +205,31 @@ public class DraftService {
     }
 
     /**
-     * 解析写入用的块级 JSON：contentJson 优先，旧 HTML 提交时服务端转换兼容
+     * 解析写入用的块级内容：content 数组（严格契约）优先，contentJson 兼容字段次之，
+     * 旧客户端提交 HTML 字符串时服务端白名单转换
      */
-    private List<Block> resolveContentJson(List<Block> contentJson, String content) {
-        if (contentJson != null) return ContentCodec.normalize(contentJson);
-        if (content != null && !content.isBlank()) return ContentCodec.fromHtml(content);
+    private List<Block> resolveContent(List<Block> contentJson, com.fasterxml.jackson.databind.JsonNode content) {
+        if (content != null && content.isArray()) {
+            return ContentCodec.normalize(ContentCodec.fromJson(content.toString()));
+        }
+        if (contentJson != null && !contentJson.isEmpty()) {
+            return ContentCodec.normalize(contentJson);
+        }
+        if (content != null && content.isTextual() && !content.asText().isBlank()) {
+            return ContentCodec.fromHtml(content.asText());
+        }
         return null;
+    }
+
+    /** 更新请求是否携带正文变更（数组、兼容字段或 HTML 字符串任一） */
+    private boolean hasContentUpdate(DraftUpdateRequest request) {
+        return (request.getContent() != null && !request.getContent().isNull())
+                || (request.getContentJson() != null && !request.getContentJson().isEmpty());
+    }
+
+    /** 块级内容 → 遗留 HTML 列（content 契约已切换为块 JSON，HTML 仅作导出/回退） */
+    private String blocksToLegacyHtml(List<Block> blocks) {
+        return blocks == null ? null : ContentCodec.blocksToHtml(blocks);
     }
 
     /**

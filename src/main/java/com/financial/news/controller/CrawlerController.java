@@ -72,6 +72,18 @@ public class CrawlerController {
         return Result.ok(report.toMap());
     }
 
+    /**
+     * 块契约全量迁移（content HTML → 严格 JSON 块）
+     */
+    @Operation(summary = "块契约全量迁移", description = "把全部存量记录的 content_json 重算为严格 JSON 契约块（HTML 白名单提取），幂等可重跑；不发起网络请求")
+    @PostMapping("/ingest/migrate-content")
+    public Result<Map<String, Object>> migrateContent(@RequestBody(required = false) IngestRequest request) {
+        JwtUserDetails.getCurrentUser();
+        Integer limit = request != null && request.getLimit() != null ? request.getLimit() : 500;
+        NewsIngestService.IngestReport report = newsIngestService.migrateContentJson(limit);
+        return Result.ok(report.toMap());
+    }
+
     /** 采集请求参数（source 亦可为来源展示名，如"东方财富"） */
     public static class IngestRequest {
         /** 数据源标识：wallstreetcn / sina / eastmoney，空为全部 */

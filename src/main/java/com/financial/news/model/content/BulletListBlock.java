@@ -8,13 +8,13 @@ import lombok.NoArgsConstructor;
 import java.util.List;
 
 /**
- * 段落块：行内节点序列（无 HTML 字符串，富文本由 marks 表达）
+ * 无序列表块（列表扁平，不嵌套）
  */
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class ParagraphBlock implements Block {
+public class BulletListBlock implements Block {
 
-    private List<InlineNode> children;
+    private List<ListItem> items;
 }

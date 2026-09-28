@@ -11,7 +11,4 @@ import lombok.Data;
 @Builder
 @AllArgsConstructor
 public class DividerBlock implements Block {
-
-    @Override
-    public String getType() { return "divider"; }
 }

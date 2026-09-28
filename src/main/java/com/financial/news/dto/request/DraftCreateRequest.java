@@ -1,8 +1,9 @@
 package com.financial.news.dto.request;
 
-import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.financial.news.model.content.Block;
 import com.financial.news.utils.ContentCodec;
+import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
@@ -23,13 +24,12 @@ public class DraftCreateRequest {
     @Schema(description = "标题")
     private String title;
 
-    @Size(max = 50000)
-    @Schema(description = "内容（旧 HTML，过渡兼容，contentJson 优先）")
-    private String content;
+    @Schema(description = "正文：块级 JSON 数组（严格契约）；过渡期兼容 HTML 字符串")
+    private JsonNode content;
 
     @Size(max = 5000)
     @JsonDeserialize(using = ContentCodec.BlockListDeserializer.class)
-    @Schema(description = "内容（块级 JSON，新契约，优先于 content）")
+    @Schema(description = "正文（块级 JSON，兼容字段；优先级低于 content 数组）")
     private List<Block> contentJson;
 
     @Size(max = 500)
