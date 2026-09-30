@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true   # 同分支新推送取消旧任务，省额度
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "23"
+          cache: maven            # 自动缓存 ~/.m2/repository
+
+      - name: Build & Verify
+        run: mvn -B -ntp verify   # 目前没有测试源码，实际是编译+打包校验；以后补了测试自动纳入
+
+      - name: Docker 镜像可构建校验
+        run: docker build -t financial-news-api:ci .
