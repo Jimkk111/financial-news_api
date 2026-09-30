@@ -1,10 +1,10 @@
 # Project Context
 
-> 可提交的项目速览，供新会话定向阅读使用。当前实现以源码与运行配置为准；历史文档只作补充。更新时间：2026-08-30。分支：`feat-v300`；HEAD：`e3b59b9`。
+> 可提交的项目速览，供新会话定向阅读使用。当前实现以源码与运行配置为准；历史文档只作补充。更新时间：2026-09-29。分支：`feat-v700`；HEAD：`faa0ab2`。
 
 ## 项目定位与权威性
 
-这是一个 Java/Spring Boot 财经新闻后端，提供认证、新闻浏览与搜索、草稿/收藏/历史、AI 对话和多 Agent 新闻爬取能力。事实优先级为：当前源码与配置 > Docker/部署文件 > 项目文档 > Git 历史。仓库当前没有 README、CI 配置或业务测试源码。
+这是一个 Java/Spring Boot 财经新闻后端，提供认证、新闻浏览与搜索、草稿/收藏/历史、AI 对话和多 Agent 新闻爬取能力。事实优先级为：当前源码与配置 > Docker/部署文件 > 项目文档 > Git 历史。仓库当前没有 README 和业务测试源码；CI/CD 由 GitHub Actions 承担（见下文）。
 
 ## 技术栈
 
@@ -69,6 +69,12 @@ docker compose down -v   # 会删除数据卷，谨慎执行
 
 构建阶段执行 `mvn clean package -DskipTests -B -q`（`Dockerfile:17-24`）；运行阶段使用 Java 23 JRE、非 root `appuser`、默认 `prod` profile，暴露端口 `3000`（`Dockerfile:25-58`）。
 
+### CI/CD：GitHub Actions（Fact）
+
+- `.github/workflows/ci.yml`：所有分支 push 和指向 main 的 PR 触发；`mvn -B -ntp verify` 编译打包校验（当前无测试源码）+ `docker build` 镜像可构建校验；按分支并发去重。
+- `.github/workflows/deploy.yml`：push 到 `main` 或手动触发；先在 runner 上 `mvn verify` 预检，再经 SSH（`appleboy/ssh-action`）到服务器执行 `git reset --hard origin/<ref>` + `docker compose up -d --build`，最后用 `GET /health`（127.0.0.1:3000）做最长 2 分钟的健康检查，失败时输出 app 日志。
+- 依赖仓库 Secrets：`SSH_HOST`、`SSH_PORT`、`SSH_USER`、`SSH_PRIVATE_KEY`（专用部署密钥，公钥在服务器部署用户 `authorized_keys`）、`DEPLOY_PATH`（服务器项目路径）。分支模型：feat 分支只跑 CI，`main` 是唯一自动部署分支；`pre-release`/`release` 已闲置（曾与 main 同点）。
+
 ## 配置与外部依赖
 
 - 通用键、默认 profile/端口、数据库、Redis、邮件、JWT、AI、爬虫和上传/日志配置：`src/main/resources/application.yml:1-147`。
@@ -120,12 +126,12 @@ Planner -> Scraper -> Processor -> Writer
 
 ## Git 与近期演进
 
-当前分支/提交：`feat-v300` / `e3b59b9`（多 Agent 爬虫工作流编排）。近期相关提交：
+当前分支/提交：`feat-v700` / `faa0ab2`（接入 GitHub Actions CI/CD）。近期相关提交：
 
-- `e3b59b9`：引入 Planner/Scraper/Processor/Writer 和 `WorkflowContext`。
-- `17b931e`：加入华尔街见闻专用列表/详情 API 工具。
-- `688f377`：加入爬虫 LLM key 校验与环境变量回退。
-- `b371946`、`d5b4de3`：调整 Docker app 绑定和 Nginx 反代。
+- `faa0ab2`：接入 GitHub Actions（编译+镜像校验 CI，main 分支 SSH 自动部署）。
+- `e4c2edf`：正文切换严格 JSON 契约。
+- `5d0e459`/`eecd452`：AI 联网搜索功能及修复。
+- `84a0efe`：爬虫剥离尾部运营模板并翻新存量正文。
 
 刷新本文件时重新确认当前 branch/HEAD；不要仅凭历史提交判断现状。
 
@@ -136,6 +142,8 @@ Planner -> Scraper -> Processor -> Writer
 - `pom.xml`
 - `Dockerfile`
 - `docker-compose.yml`
+- `.github/workflows/ci.yml`
+- `.github/workflows/deploy.yml`
 - `src/main/java/com/financial/news/FinancialNewsApplication.java`
 - `src/main/resources/application.yml`
 - `src/main/resources/application-prod.yml`
