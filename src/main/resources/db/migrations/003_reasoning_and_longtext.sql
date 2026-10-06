@@ -7,6 +7,7 @@
 --   b) 预置财经分类种子由 CategorySeeder 在应用启动时幂等补种，此处 INSERT 仅作提前灌入，
 --      清单须与 CategorySeeder.PRESET_CATEGORIES 保持一致
 --   c) 执行前请先备份（mysqldump 或快照）
+SET NAMES utf8mb4;
 
 ALTER TABLE `ai_messages`
     ADD COLUMN `reasoning_content` MEDIUMTEXT DEFAULT NULL COMMENT '思考型模型的思考链（reasoning_content），仅 assistant 消息' AFTER `content`;

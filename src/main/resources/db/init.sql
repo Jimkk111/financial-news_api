@@ -2,6 +2,9 @@
 -- 财经新闻 API 数据库初始化脚本
 -- 数据库名: cls_financial_news_database
 -- ============================================================
+-- 固定会话字符集：docker-entrypoint 或 mysql 客户端手工执行时，
+-- 客户端默认字符集可能不是 utf8mb4（latin1 下中文字面量会被双重编码成乱码）
+SET NAMES utf8mb4;
 
 CREATE DATABASE IF NOT EXISTS cls_financial_news_database
     DEFAULT CHARACTER SET utf8mb4
