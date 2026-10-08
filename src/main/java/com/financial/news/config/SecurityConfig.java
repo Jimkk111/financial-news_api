@@ -55,6 +55,8 @@ public class SecurityConfig {
                 .requestMatchers("/api/auth/**").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/news/**").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/news/*/views").permitAll()
+                // 行情公开只读接口（限流由 QuoteRateLimitInterceptor 承担）
+                .requestMatchers(HttpMethod.GET, "/api/quotes/**").permitAll()
                 // 静态文件
                 .requestMatchers("/uploads/**").permitAll()
                 // 其他接口需要认证

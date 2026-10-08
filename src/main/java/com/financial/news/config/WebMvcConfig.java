@@ -1,18 +1,21 @@
 package com.financial.news.config;
 
+import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.servlet.config.annotation.CorsRegistry;
+import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
 import org.springframework.web.servlet.config.annotation.ResourceHandlerRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
 /**
- * Web MVC 配置（CORS + 静态资源）
+ * Web MVC 配置（CORS + 静态资源 + 行情限流拦截器）
  *
  * @author financial-news
  * @since 1.0.0
  */
 @Configuration
+@RequiredArgsConstructor
 public class WebMvcConfig implements WebMvcConfigurer {
 
     @Value("${upload.dir:uploads}")
@@ -20,6 +23,8 @@ public class WebMvcConfig implements WebMvcConfigurer {
 
     @Value("${upload.url-prefix:/uploads}")
     private String uploadUrlPrefix;
+
+    private final QuoteRateLimitInterceptor quoteRateLimitInterceptor;
 
     /**
      * CORS 跨域配置
@@ -41,5 +46,13 @@ public class WebMvcConfig implements WebMvcConfigurer {
     public void addResourceHandlers(ResourceHandlerRegistry registry) {
         registry.addResourceHandler(uploadUrlPrefix + "/**")
                 .addResourceLocations("file:" + uploadDir + "/");
+    }
+
+    /**
+     * 行情公开接口限流
+     */
+    @Override
+    public void addInterceptors(InterceptorRegistry registry) {
+        registry.addInterceptor(quoteRateLimitInterceptor).addPathPatterns("/api/quotes/**");
     }
 }

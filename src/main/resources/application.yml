@@ -172,6 +172,34 @@ upload:
     dir: media                                 # 对象 Key 前缀
     custom-domain: ${OSS_CUSTOM_DOMAIN:}       # 可选自定义/CDN 域名，如 https://cdn.example.com；为空则用 bucket 外网域名
 
+# 行情模块配置（公开只读接口：/api/quotes/**，SecurityConfig 白名单放行；默认值开箱即用，生产由 application-prod.yml 覆盖）
+quote:
+  provider:
+    primary: eastmoney            # 主源：eastmoney | sina
+    connect-timeout-ms: 2000
+    read-timeout-ms: 4000
+    # 单位为秒：连续失败次数达到 threshold 熔断 open-seconds
+    breaker-fail-threshold: 5
+    breaker-open-seconds: 30
+  cache:
+    snapshot-fresh-seconds: 15    # 盘中快照新鲜窗口
+    trend-fresh-seconds: 60       # 盘中分时新鲜窗口
+    kline-fresh-seconds: 300      # 盘中 K 线新鲜窗口
+    list-fresh-seconds: 15        # 指数卡/热门列表新鲜窗口
+    warmup-enabled: true          # 交易时段预热指数卡+热门缓存
+  rate-limit:
+    enabled: true
+    window-seconds: 60
+    max-requests: 60              # 每 IP 每窗口次数
+  sync:
+    calendar-cron: "0 0 3 * * *"      # 交易日历生成/校准
+    security-cron: "0 10 3 * * *"     # 标的主表全量同步
+    calendar-forward-days: 90         # 日历至少前瞻天数
+  indices:                            # 指数卡清单与展示顺序
+    CN: [ "000001.SH", "399001.SZ", "399006.SZ", "000300.SH" ]
+    US: [ "DJI.US", "IXIC.US", "SPX.US" ]
+    HK: [ "HSI.HK", "HSTECH.HK" ]
+
 # 日志配置
 logging:
   level:

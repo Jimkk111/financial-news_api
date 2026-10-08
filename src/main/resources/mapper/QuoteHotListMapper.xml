@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.financial.news.mapper.QuoteHotListMapper">
+
+    <resultMap id="BaseResultMap" type="com.financial.news.entity.QuoteHotList">
+        <id column="id" property="id"/>
+        <result column="market" property="market"/>
+        <result column="symbol" property="symbol"/>
+        <result column="sort_order" property="sortOrder"/>
+        <result column="enabled" property="enabled"/>
+        <result column="remark" property="remark"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="updated_at" property="updatedAt"/>
+    </resultMap>
+
+    <select id="selectEnabledByMarket" resultMap="BaseResultMap">
+        SELECT id, market, symbol, sort_order, enabled, remark, created_at, updated_at
+        FROM quote_hot_list
+        WHERE market = #{market} AND enabled = 1
+        ORDER BY sort_order
+    </select>
+
+    <select id="countAll" resultType="long">
+        SELECT COUNT(*) FROM quote_hot_list
+    </select>
+
+</mapper>

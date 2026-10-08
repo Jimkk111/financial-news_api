@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.financial.news.mapper.QuoteTradeCalendarMapper">
+
+    <resultMap id="BaseResultMap" type="com.financial.news.entity.QuoteTradeCalendar">
+        <id column="id" property="id"/>
+        <result column="market" property="market"/>
+        <result column="trade_date" property="tradeDate"/>
+        <result column="is_open" property="isOpen"/>
+        <result column="session1_open" property="session1Open"/>
+        <result column="session1_close" property="session1Close"/>
+        <result column="session2_open" property="session2Open"/>
+        <result column="session2_close" property="session2Close"/>
+        <result column="source" property="source"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="updated_at" property="updatedAt"/>
+    </resultMap>
+
+    <sql id="BaseColumns">
+        id, market, trade_date, is_open, session1_open, session1_close, session2_open, session2_close,
+        source, created_at, updated_at
+    </sql>
+
+    <select id="selectByMarketAndDate" resultMap="BaseResultMap">
+        SELECT <include refid="BaseColumns"/>
+        FROM quote_trade_calendar
+        WHERE market = #{market} AND trade_date = #{tradeDate}
+        LIMIT 1
+    </select>
+
+    <select id="selectRange" resultMap="BaseResultMap">
+        SELECT <include refid="BaseColumns"/>
+        FROM quote_trade_calendar
+        WHERE market = #{market} AND trade_date BETWEEN #{fromDate} AND #{toDate}
+        ORDER BY trade_date
+    </select>
+
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO quote_trade_calendar
+            (market, trade_date, is_open, session1_open, session1_close, session2_open, session2_close, source)
+        VALUES
+            (#{market}, #{tradeDate}, #{isOpen}, #{session1Open}, #{session1Close},
+             #{session2Open}, #{session2Close}, #{source})
+    </insert>
+
+    <update id="updateAuto">
+        UPDATE quote_trade_calendar
+        SET is_open = #{isOpen},
+            session1_open = #{session1Open},
+            session1_close = #{session1Close},
+            session2_open = #{session2Open},
+            session2_close = #{session2Close},
+            source = #{source}
+        WHERE market = #{market} AND trade_date = #{tradeDate} AND source != 'MANUAL'
+    </update>
+
+    <select id="countAll" resultType="long">
+        SELECT COUNT(*) FROM quote_trade_calendar
+    </select>
+
+</mapper>

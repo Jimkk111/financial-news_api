@@ -141,6 +141,16 @@ public class GlobalExceptionHandler {
     }
 
     /**
+     * 处理行情上游数据源失败（主备源均不可用且无 stale 缓存）
+     */
+    @ExceptionHandler(com.financial.news.service.quote.provider.UpstreamException.class)
+    public ResponseEntity<Result<Void>> handleUpstreamException(com.financial.news.service.quote.provider.UpstreamException ex, HttpServletRequest request) {
+        log.warn("[行情上游失败] URI:{}, Message:{}", request.getRequestURI(), ex.getMessage());
+        return ResponseEntity.status(ErrorCode.QUOTE_UPSTREAM_FAILED.getHttpStatus())
+                .body(Result.fail(ErrorCode.QUOTE_UPSTREAM_FAILED));
+    }
+
+    /**
      * 处理其他未知异常
      */
     @ExceptionHandler(Exception.class)

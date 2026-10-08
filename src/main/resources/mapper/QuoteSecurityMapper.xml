@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.financial.news.mapper.QuoteSecurityMapper">
+
+    <resultMap id="BaseResultMap" type="com.financial.news.entity.QuoteSecurity">
+        <id column="id" property="id"/>
+        <result column="symbol" property="symbol"/>
+        <result column="sec_type" property="secType"/>
+        <result column="market" property="market"/>
+        <result column="name" property="name"/>
+        <result column="pinyin_abbr" property="pinyinAbbr"/>
+        <result column="status" property="status"/>
+        <result column="currency" property="currency"/>
+        <result column="upstream_secid" property="upstreamSecid"/>
+        <result column="missing_days" property="missingDays"/>
+        <result column="last_active_date" property="lastActiveDate"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="updated_at" property="updatedAt"/>
+    </resultMap>
+
+    <sql id="BaseColumns">
+        id, symbol, sec_type, market, name, pinyin_abbr, status, currency, upstream_secid,
+        missing_days, last_active_date, created_at, updated_at
+    </sql>
+
+    <select id="selectBySymbolAndType" resultMap="BaseResultMap">
+        SELECT <include refid="BaseColumns"/>
+        FROM quote_security
+        WHERE symbol = #{symbol} AND sec_type = #{secType}
+        LIMIT 1
+    </select>
+
+    <select id="selectBySymbolsAndType" resultMap="BaseResultMap">
+        SELECT <include refid="BaseColumns"/>
+        FROM quote_security
+        WHERE sec_type = #{secType} AND symbol IN
+        <foreach collection="symbols" item="s" open="(" separator="," close=")">#{s}</foreach>
+    </select>
+
+    <select id="selectActiveStocksByMarket" resultMap="BaseResultMap">
+        SELECT <include refid="BaseColumns"/>
+        FROM quote_security
+        WHERE market = #{market} AND sec_type = 1 AND status = 1
+    </select>
+
+    <insert id="upsert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO quote_security
+            (symbol, sec_type, market, name, pinyin_abbr, status, currency, upstream_secid,
+             missing_days, last_active_date)
+        VALUES
+            (#{symbol}, #{secType}, #{market}, #{name}, #{pinyinAbbr}, #{status}, #{currency},
+             #{upstreamSecid}, #{missingDays}, #{lastActiveDate})
+        ON DUPLICATE KEY UPDATE
+            market = VALUES(market),
+            name = VALUES(name),
+            pinyin_abbr = VALUES(pinyin_abbr),
+            status = VALUES(status),
+            currency = VALUES(currency),
+            upstream_secid = VALUES(upstream_secid),
+            missing_days = 0,
+            last_active_date = VALUES(last_active_date)
+    </insert>
+
+    <select id="searchBySymbolPrefix" resultMap="BaseResultMap">
+        SELECT <include refid="BaseColumns"/>
+        FROM quote_security
+        WHERE UPPER(symbol) LIKE CONCAT(#{prefix}, '%')
+        ORDER BY LENGTH(symbol), symbol
+        LIMIT #{limit}
+    </select>
+
+    <select id="searchByNameLike" resultMap="BaseResultMap">
+        SELECT <include refid="BaseColumns"/>
+        FROM quote_security
+        WHERE name LIKE CONCAT('%', #{keyword}, '%')
+        ORDER BY LENGTH(name), symbol
+        LIMIT #{limit}
+    </select>
+
+    <select id="searchByPinyinPrefix" resultMap="BaseResultMap">
+        SELECT <include refid="BaseColumns"/>
+        FROM quote_security
+        WHERE pinyin_abbr LIKE CONCAT(#{prefix}, '%')
+        ORDER BY LENGTH(pinyin_abbr), symbol
+        LIMIT #{limit}
+    </select>
+
+    <update id="incrementMissing">
+        UPDATE quote_security
+        SET missing_days = missing_days + 1,
+            status = IF(missing_days + 1 &gt;= #{threshold}, 2, status),
+            last_active_date = #{lastActiveDate}
+        WHERE symbol = #{symbol} AND sec_type = 1
+    </update>
+
+    <update id="reactivate">
+        UPDATE quote_security
+        SET status = 1, missing_days = 0, last_active_date = #{lastActiveDate}
+        WHERE symbol = #{symbol} AND sec_type = #{secType}
+    </update>
+
+    <select id="countAll" resultType="long">
+        SELECT COUNT(*) FROM quote_security
+    </select>
+
+</mapper>

@@ -61,6 +61,12 @@ public enum ErrorCode {
     MEDIA_NOT_CONFIGURED(503, "MEDIA_NOT_CONFIGURED", "对象存储未配置"),
     MEDIA_UPLOAD_FAILED(502, "MEDIA_UPLOAD_FAILED", "文件上传失败"),
 
+    // ========== 行情相关 ==========
+    QUOTE_MARKET_INVALID(400, "QUOTE_MARKET_INVALID", "行情市场标识无效"),
+    QUOTE_SYMBOL_INVALID(400, "QUOTE_SYMBOL_INVALID", "行情标的标识无效"),
+    QUOTE_NOT_FOUND(404, "QUOTE_NOT_FOUND", "行情标的不存在"),
+    QUOTE_UPSTREAM_FAILED(502, "QUOTE_UPSTREAM_FAILED", "行情数据源暂时不可用，请稍后重试"),
+
     // ========== 新闻相关 ==========
     NEWS_NOT_FOUND(404, "NEWS_NOT_FOUND", "新闻不存在");
 
