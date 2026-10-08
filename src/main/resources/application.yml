@@ -84,6 +84,8 @@ crawler:
     ai-tagging:
       enabled: true                 # 入库前 AI 分类/打标；未配 AI_API_KEY 时自动降级为来源默认分类
       excerpt-length: 800           # 送入 LLM 的正文字数上限
+      max-tokens: 800               # 思考模型需保留足够预算输出 JSON；旧值 200 容易只返回思考内容
+      temperature: 0.1              # 分类任务低随机性，保证同类新闻的标签稳定
     sources:
       wallstreetcn:
         enabled: true

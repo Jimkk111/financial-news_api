@@ -112,7 +112,13 @@ public class OpenAiCompatibleClient {
      * @param webSearch true 时启用 MiMo Web Search 插件（tools: web_search）
      */
     public ChatResult chat(List<ChatParam> messages, boolean webSearch) {
-        Request request = buildRequest(messages, false, webSearch);
+        return chat(messages, webSearch, maxTokens, temperature);
+    }
+
+    /** 供分类、摘要等内部任务覆盖生成参数，不影响用户对话的全局参数。 */
+    public ChatResult chat(List<ChatParam> messages, boolean webSearch, int requestMaxTokens,
+                           double requestTemperature) {
+        Request request = buildRequest(messages, false, webSearch, requestMaxTokens, requestTemperature);
         OkHttpClient callScoped = client().newBuilder()
                 .callTimeout(60, TimeUnit.SECONDS)
                 .build();
@@ -137,7 +143,7 @@ public class OpenAiCompatibleClient {
      * 上游失败或 callback 抛异常时中止请求并以异常结束。
      */
     public ChatResult stream(List<ChatParam> messages, StreamCallback callback, boolean webSearch) {
-        Request request = buildRequest(messages, true, webSearch);
+        Request request = buildRequest(messages, true, webSearch, maxTokens, temperature);
         CountDownLatch done = new CountDownLatch(1);
         AtomicReference<Throwable> failure = new AtomicReference<>();
         StringBuilder content = new StringBuilder();
@@ -222,12 +228,13 @@ public class OpenAiCompatibleClient {
         return new ChatResult(content.toString(), reasoning.toString(), List.copyOf(sources));
     }
 
-    private Request buildRequest(List<ChatParam> messages, boolean stream, boolean webSearch) {
+    private Request buildRequest(List<ChatParam> messages, boolean stream, boolean webSearch,
+                                 int requestMaxTokens, double requestTemperature) {
         ObjectNode body = mapper.createObjectNode();
         body.put("model", webSearch ? webSearchModel : model);
         body.put("stream", stream);
-        body.put("max_tokens", maxTokens);
-        body.put("temperature", temperature);
+        body.put("max_tokens", requestMaxTokens);
+        body.put("temperature", requestTemperature);
         if (webSearch) {
             // MiMo Web Search 插件：tools.web_search + tool_choice=auto
             ObjectNode tool = body.putArray("tools").addObject();

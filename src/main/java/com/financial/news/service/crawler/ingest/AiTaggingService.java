@@ -7,20 +7,15 @@ import com.financial.news.entity.Category;
 import com.financial.news.entity.Tag;
 import com.financial.news.mapper.CategoryMapper;
 import com.financial.news.mapper.TagMapper;
+import com.financial.news.service.ai.OpenAiCompatibleClient;
+import com.financial.news.service.ai.OpenAiCompatibleClient.ChatParam;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
-import java.time.Duration;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
@@ -42,6 +37,7 @@ public class AiTaggingService {
 
     private final CategoryMapper categoryMapper;
     private final TagMapper tagMapper;
+    private final OpenAiCompatibleClient aiClient;
 
     @Value("${crawler.ingest.ai-tagging.enabled:true}")
     private boolean enabled;
@@ -49,21 +45,17 @@ public class AiTaggingService {
     @Value("${crawler.ingest.ai-tagging.excerpt-length:800}")
     private int excerptLength;
 
+    @Value("${crawler.ingest.ai-tagging.max-tokens:800}")
+    private int maxTokens;
+
+    @Value("${crawler.ingest.ai-tagging.temperature:0.1}")
+    private double temperature;
+
     @Value("${ai.api-key:}")
     private String apiKey;
 
-    @Value("${ai.api-base-url:https://api.openai.com/v1}")
-    private String apiBaseUrl;
-
-    @Value("${ai.model:gpt-3.5-turbo}")
-    private String model;
-
-    @Value("${ai.temperature:0.2}")
-    private double temperature;
-
-    private final HttpClient httpClient = HttpClient.newBuilder()
-            .connectTimeout(Duration.ofSeconds(10))
-            .build();
+    /** 限制候选标签数，避免标签库增长后挤占模型上下文，导致输出被截断。 */
+    private static final int MAX_EXISTING_TAG_CANDIDATES = 100;
 
     /** 分类与标签结果；category 为库中已有分类或格式合规的新分类名（可能为 null），tags 已清洗去重 */
     public record TaggingResult(String category, List<String> tags) {
@@ -96,7 +88,10 @@ public class AiTaggingService {
                 categoryNames = CategorySeeder.PRESET_CATEGORIES;
             }
             List<String> existingTags = tagMapper.selectListAll().stream()
-                    .map(Tag::getName).toList();
+                    .map(Tag::getName)
+                    .filter(name -> name != null && !name.isBlank())
+                    .limit(MAX_EXISTING_TAG_CANDIDATES)
+                    .toList();
 
             String excerpt = plainText.length() > excerptLength
                     ? plainText.substring(0, excerptLength) : plainText;
@@ -132,33 +127,15 @@ public class AiTaggingService {
                 title, excerpt);
     }
 
-    private String callAi(String prompt) throws Exception {
-        Map<String, Object> body = new LinkedHashMap<>();
-        body.put("model", model);
-        body.put("messages", List.of(Map.of("role", "user", "content", prompt)));
-        body.put("max_tokens", 200);
-        body.put("temperature", temperature);
-
-        String json = new ObjectMapper().writeValueAsString(body);
-        HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(apiBaseUrl + "/chat/completions"))
-                .header("Content-Type", "application/json")
-                .header("Authorization", "Bearer " + apiKey)
-                .timeout(Duration.ofSeconds(20))
-                .POST(HttpRequest.BodyPublishers.ofString(json))
-                .build();
-        HttpResponse<String> resp = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-        if (resp.statusCode() < 200 || resp.statusCode() >= 300) {
-            throw new IllegalStateException("AI 接口返回 HTTP " + resp.statusCode());
-        }
-        JsonNode root = new ObjectMapper().readTree(resp.body());
-        JsonNode choices = root.path("choices");
-        if (!choices.isArray() || choices.isEmpty()) {
-            throw new IllegalStateException("AI 响应缺少 choices");
-        }
-        String content = choices.get(0).path("message").path("content").asText("");
+    private String callAi(String prompt) {
+        // 与 AI 对话共用兼容客户端：它会正确处理思考型模型的 reasoning_content，
+        // 同时采用统一的超时、错误摘要和 URL 规范化逻辑。旧实现固定 max_tokens=200，
+        // MiMo 等模型常在思考阶段耗尽配额，因而返回 HTTP 200 但 content 为空。
+        String content = aiClient.chat(List.of(
+                new ChatParam("system", "你是财经新闻分类器。严格按用户要求输出，不解释推理过程。"),
+                new ChatParam("user", prompt)), false, maxTokens, temperature).content();
         if (content.isBlank()) {
-            throw new IllegalStateException("AI 响应内容为空");
+            throw new IllegalStateException("AI 响应正文为空（可能是模型思考输出耗尽了 token）");
         }
         return content;
     }
