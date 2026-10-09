@@ -22,12 +22,18 @@ final class BoilerplateStripper {
     private static final Pattern[] TEXT_RULES = {
             Pattern.compile("海量资讯.*?(APP|客户端).*"),
             Pattern.compile(".*新浪财经(APP|客户端).*"),
+            Pattern.compile("新浪合作大平台期货开户\\s*安全快捷有保障"),
             Pattern.compile("责任编辑[：:].*"),
             Pattern.compile("郑重声明[：:].*")
     };
 
     /** 新浪尾部二维码固定素材（多分辨率同名系列） */
-    private static final Pattern QR_IMG = Pattern.compile("n\\.sinaimg\\.cn/finance/cece9e13|655959900_");
+    private static final Pattern QR_IMG = Pattern.compile(
+            "n\\.sinaimg\\.cn/finance/cece9e13|655959900_|bd6a-a2376d5226aaa796dfdca62b1d9b1fcb\\.png",
+            Pattern.CASE_INSENSITIVE);
+
+    /** 固定素材也可能出现在懒加载或响应式图片属性中。 */
+    private static final String[] IMAGE_ATTRIBUTES = {"src", "data-src", "data-original", "data-url", "srcset", "data-srcset"};
 
     /** 段内元数据尾巴的起点标记（来源署名/责编/原标题常连排挤在末段） */
     private static final String[] TAIL_MARKERS = {"（文章来源", "文章来源：", "责任编辑：", "原标题："};
@@ -58,17 +64,27 @@ final class BoilerplateStripper {
             trimMetaTail(el, text);
         }
         for (Element img : doc.select("img")) {
-            if (QR_IMG.matcher(img.attr("src")).find()) {
+            if (isPromoImage(img)) {
                 Element parent = img.parent();
                 img.remove();
                 // 外层容器只剩这个二维码时一并移除，避免留空段
                 if (parent != null && !parent.tagName().equals("body")
-                        && parent.parent() != null && parent.text().isBlank()) {
+                        && parent.parent() != null && parent.text().isBlank()
+                        && parent.select("img, picture, video, audio, svg, canvas, iframe, object, embed").isEmpty()) {
                     parent.remove();
                 }
             }
         }
         return doc.body().html();
+    }
+
+    private static boolean isPromoImage(Element img) {
+        for (String attribute : IMAGE_ATTRIBUTES) {
+            if (QR_IMG.matcher(img.attr(attribute)).find()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

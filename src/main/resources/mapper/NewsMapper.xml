@@ -159,6 +159,8 @@
           AND CHAR_LENGTH(content) &gt; 200
           AND (content LIKE '%新浪财经APP%' OR content LIKE '%责任编辑%' OR content LIKE '%郑重声明%'
                OR content LIKE '%热点栏目%'
+                 OR content LIKE '%新浪合作大平台期货开户%'
+                 OR content LIKE '%bd6a-a2376d5226aaa796dfdca62b1d9b1fcb.png%'
                OR (content_json IS NULL AND content NOT LIKE '%&lt;%'))
         <if test="source != null">
             AND source = #{source}
