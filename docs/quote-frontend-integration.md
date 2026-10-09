@@ -327,7 +327,7 @@ export interface QuoteKlineVO extends QuoteBaseVO {
 
 ## 8. 联调与自查
 
-**本地联调**：后端 `mvn spring-boot:run`（默认 3000 端口）；前端 `VITE_API_BASE_URL=http://127.0.0.1:3000/api`（或走代理）。数据库需执行过 `db/init.sql`（新库）或 `db/migration/v800-quote.sql`（存量库）。
+**本地联调**：后端 `mvn spring-boot:run`（默认 3000 端口）；前端 `VITE_API_BASE_URL=http://127.0.0.1:3000/api`（或走代理）。行情表会在后端启动时通过幂等迁移自动初始化；`db/migration/v800-quote.sql` 也可用于手工排障。
 
 **验收自查清单（PRD 第八章中前端职责项）**：
 

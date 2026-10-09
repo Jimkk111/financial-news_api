@@ -433,7 +433,7 @@ CREATE TABLE `quote_hot_list` (
 `docker-compose` 只在数据卷首建时执行 `init.sql`，因此：
 
 1. `init.sql` 追加上述 DDL + 种子（服务新环境）；
-2. 另提供 `db/migration/v800-quote.sql`（幂等：`CREATE TABLE IF NOT EXISTS` + `INSERT IGNORE` 种子），存量环境执行一次——沿用仓库现有"无 flyway、迁移脚本手工执行"的现状，在部署说明中记录步骤。
+2. 另提供 `db/migration/v800-quote.sql`（幂等：`CREATE TABLE IF NOT EXISTS` + `INSERT IGNORE` 种子），由 `QuoteSchemaInitializer` 在应用启动同步任务前自动执行；也可在排障或独立部署数据库时手工执行。
 
 ### 10.3 种子数据
 
