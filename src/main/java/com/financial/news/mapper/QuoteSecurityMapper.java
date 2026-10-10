@@ -22,6 +22,11 @@ public interface QuoteSecurityMapper {
 
     List<QuoteSecurity> selectActiveStocksByMarket(@Param("market") String market);
 
+    long countActiveStocksByMarket(@Param("market") String market);
+
+    List<QuoteSecurity> selectStockPage(@Param("market") String market,
+                                       @Param("offset") long offset, @Param("limit") int limit);
+
     /** 新增或更新（uk_symbol_type 冲突时更新）；名称变更时调用方需重算拼音 */
     int upsert(QuoteSecurity security);
 

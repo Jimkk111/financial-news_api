@@ -43,6 +43,18 @@
         WHERE market = #{market} AND sec_type = 1 AND status = 1
     </select>
 
+    <select id="countActiveStocksByMarket" resultType="long">
+        SELECT COUNT(*) FROM quote_security
+        WHERE market = #{market} AND sec_type = 1 AND status = 1
+    </select>
+
+    <select id="selectStockPage" resultMap="BaseResultMap">
+        SELECT <include refid="BaseColumns"/> FROM quote_security
+        WHERE market = #{market} AND sec_type = 1 AND status = 1
+        ORDER BY symbol, id
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
     <insert id="upsert" useGeneratedKeys="true" keyProperty="id">
         INSERT INTO quote_security
             (symbol, sec_type, market, name, pinyin_abbr, status, currency, upstream_secid,
@@ -91,6 +103,7 @@
             status = IF(missing_days + 1 &gt;= #{threshold}, 2, status),
             last_active_date = #{lastActiveDate}
         WHERE symbol = #{symbol} AND sec_type = 1
+          AND (last_active_date IS NULL OR last_active_date &lt; #{lastActiveDate})
     </update>
 
     <update id="reactivate">

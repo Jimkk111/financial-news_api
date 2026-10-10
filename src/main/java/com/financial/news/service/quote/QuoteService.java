@@ -13,6 +13,8 @@ import com.financial.news.dto.response.quote.QuoteKlineVO;
 import com.financial.news.dto.response.quote.QuoteSnapshotVO;
 import com.financial.news.dto.response.quote.QuoteTrendVO;
 import com.financial.news.dto.response.quote.TrendPointVO;
+import com.financial.news.dto.response.quote.StockListVO;
+import com.financial.news.service.quote.sync.SecurityMasterSyncJob;
 import com.financial.news.entity.QuoteHotList;
 import com.financial.news.entity.QuoteSecurity;
 import com.financial.news.mapper.QuoteHotListMapper;
@@ -80,6 +82,54 @@ public class QuoteService {
     private final QuoteSecurityMapper securityMapper;
     private final QuoteHotListMapper hotListMapper;
     private final QuoteProperties properties;
+    private final SecurityMasterSyncJob securitySync;
+
+    public StockListVO getStockList(String marketRaw, Integer page, Integer pageSize) {
+        MarketEnum market = MarketEnum.parse(marketRaw);
+        int number = page == null ? 1 : Math.max(1, page);
+        int size = pageSize == null ? 50 : Math.min(100, Math.max(1, pageSize));
+        long offset = (number - 1L) * size;
+        long total = securityMapper.countActiveStocksByMarket(market.name());
+        List<QuoteSecurity> securities = offset >= total ? List.of()
+                : securityMapper.selectStockPage(market.name(), offset, size);
+        Map<String, QuoteSnapshot> snapshots = Map.of();
+        long fetchedAt = 0;
+        if (!securities.isEmpty()) {
+            Duration fresh = Duration.ofSeconds(properties.getCache().getListFreshSeconds());
+            // 内容指纹避免同步新增股票后，旧页缓存与当前页标的错位。
+            String symbols = securities.stream().map(QuoteSecurity::getSymbol).collect(Collectors.joining(","));
+            try {
+                var cached = cache.getOrLoad("quote:stocks:" + market.name() + ":" + symbols,
+                        SNAPSHOT_LIST_TYPE, fresh, staleTtl(fresh), storeTtl(market, fresh),
+                        () -> fetchSnapshots(securities));
+                fetchedAt = cached.fetchedAtEpochSec();
+                snapshots = cached.value().stream().collect(Collectors.toMap(
+                        QuoteSnapshot::getSymbol, Function.identity(), (a, b) -> a));
+            } catch (RuntimeException e) {
+                log.warn("[行情] {} 股票列表报价暂不可用，保留股票信息: {}", market, e.getMessage());
+            }
+        }
+        List<QuoteSnapshotVO> stocks = new ArrayList<>();
+        for (QuoteSecurity security : securities) {
+            QuoteSnapshot snapshot = snapshots.get(security.getSymbol());
+            if (snapshot != null) {
+                stocks.add(toSnapshotVO(security, QuoteSecType.STOCK, market, snapshot, fetchedAt));
+            } else {
+                QuoteSnapshotVO item = new QuoteSnapshotVO();
+                item.setSecType("stock");
+                item.setSymbol(security.getSymbol());
+                item.setName(security.getName());
+                item.setMarket(market.name());
+                item.setCurrency(security.getCurrency());
+                item.setDelayed(true);
+                stocks.add(item);
+            }
+        }
+        var syncedAt = securitySync.lastSuccessfulSync(market);
+        return new StockListVO(market.name(), number, size, total, offset + size < total,
+                syncedAt != null, syncedAt == null ? null : syncedAt.toString(),
+                stocks.stream().anyMatch(QuoteBaseVO::isDelayed), stocks);
+    }
 
     // ==================== 指数卡 ====================
 
@@ -454,7 +504,7 @@ public class QuoteService {
 
     /**
      * 校验并规范化 symbol（大写）。规则：
-     * 沪深 6 位数字 + .SH/.SZ；港股股票 5 位数字/.HK；港股指数字母/.HK；美股字母数字/.US
+     * 沪深北 6 位数字 + .SH/.SZ/.BJ；港股股票 5 位数字/.HK；港股指数字母/.HK；美股代码/.US
      */
     private String normalizeSymbol(String raw, QuoteSecType type) {
         if (raw == null) {
@@ -468,9 +518,9 @@ public class QuoteService {
         String code = symbol.substring(0, dot);
         String suffix = symbol.substring(dot + 1);
         boolean valid = switch (suffix) {
-            case "SH", "SZ" -> code.matches("\\d{6}");
+            case "SH", "SZ", "BJ" -> code.matches("\\d{6}");
             case "HK" -> type == QuoteSecType.INDEX ? code.matches("[A-Z]{1,10}") : code.matches("\\d{5}");
-            case "US" -> code.matches("[A-Z0-9.]{1,8}");
+            case "US" -> code.matches("[A-Z0-9._]{1,10}");
             default -> false;
         };
         if (!valid) {
@@ -482,7 +532,7 @@ public class QuoteService {
     private MarketEnum marketOf(String symbol) {
         String suffix = symbol.substring(symbol.lastIndexOf('.') + 1);
         return switch (suffix) {
-            case "SH", "SZ" -> MarketEnum.CN;
+            case "SH", "SZ", "BJ" -> MarketEnum.CN;
             case "HK" -> MarketEnum.HK;
             case "US" -> MarketEnum.US;
             default -> throw new BusinessException(ErrorCode.QUOTE_SYMBOL_INVALID);

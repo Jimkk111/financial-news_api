@@ -7,6 +7,7 @@ import com.financial.news.dto.response.quote.QuoteKlineVO;
 import com.financial.news.dto.response.quote.QuoteSearchVO;
 import com.financial.news.dto.response.quote.QuoteSnapshotVO;
 import com.financial.news.dto.response.quote.QuoteTrendVO;
+import com.financial.news.dto.response.quote.StockListVO;
 import com.financial.news.service.quote.QuoteSearchService;
 import com.financial.news.service.quote.QuoteService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -30,6 +31,14 @@ public class QuoteController {
 
     private final QuoteService quoteService;
     private final QuoteSearchService quoteSearchService;
+
+    @Operation(summary = "全部股票列表（按市场分页，含当前页行情）")
+    @GetMapping("/stocks")
+    public Result<StockListVO> stocks(@RequestParam String market,
+                                     @RequestParam(defaultValue = "1") Integer page,
+                                     @RequestParam(defaultValue = "50") Integer pageSize) {
+        return Result.ok(quoteService.getStockList(market, page, pageSize));
+    }
 
     @Operation(summary = "指数卡片（单市场批量快照）")
     @GetMapping("/indices")

@@ -651,3 +651,13 @@ quote:
 7. **东财 ulist 响应结构**：业务数据在 `data.diff` 下（本次实现曾因漏下钻 `data` 节点导致主源快照恒空、静默降级备源，被 mock 全链路测试捕获——免费上游契约以防腐层+mock 回归保护是硬要求）。
 8. **量纲契约**：对外 volume 统一"股"（东财沪深 f5/f56/f56(trend) 为"手"，provider 内 ×100；指数同样处理）。
 9. 里程碑 M1 spike 确认项落位：恒生科技 secid = `124.HSTECH`（suggest 接口权威 QuoteID，运行期冒烟二次确认）；停牌识别采用启发式（上游标志位字段待正式接入时补充确认）。
+
+### 全部股票列表补充（2026-10-10）
+
+`GET /api/quotes/stocks?market=CN&page=1&pageSize=50` 从 `quote_security` 分页查询该市场在市股票（`sec_type=1,status=1`），按symbol/id排序，返回总数、hasMore、当前页快照和同步状态。热门名单 `quote_hot_list` 只用于 `/hot`。单页最大100，分页缓存键包含本页代码清单，缺报价不删除股票行。
+
+证券主表同步改为启动即异步同步全部市场，每日03:10更新；当日失败市场每5分钟重试，单实例用原子锁避免任务重叠。A股筛选补入北交所，列表与详情支持 `.BJ`；美股带点或下划线的代码保留完整符号。
+
+分页抓取按实际累计条数对照上游total，后续页失败、重复行、无效行、total变化或提前空页均拒绝整批数据。整批通过格式和市场校验后才upsert；少于100条或相比当前在市数量减少超过20%拒绝本次同步。缺失退市计数每个自然日最多增加一次，失败分页不得触发退市判定。上游连接失败保留原数据并持续重试；本次开发环境的真实东财请求仍失败，不能把通过mock测试等同于已完成线上全量同步。
+
+北交所筛选参考 [AKShare上游适配源码](https://github.com/akfamily/akshare/blob/main/akshare/stock_feature/stock_hist_em.py)。完整前端契约见 `quote-frontend-integration.md` 第10节。

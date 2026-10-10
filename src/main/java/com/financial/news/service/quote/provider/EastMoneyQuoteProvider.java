@@ -25,6 +25,8 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.HashSet;
+import java.util.Set;
 
 /**
  * 东方财富行情数据源（主源，非官方接口，字段经防腐层在此收口）
@@ -199,41 +201,43 @@ public class EastMoneyQuoteProvider implements QuoteProvider {
      */
     public List<UpstreamSecurity> listAllSecurities(String fs) {
         List<UpstreamSecurity> result = new ArrayList<>();
-        int page = 1;
-        long total = Long.MAX_VALUE;
-        while ((page - 1) * 200L < total && page <= 300) {
+        Set<String> seen = new HashSet<>();
+        long total = -1;
+        for (int page = 1; page <= 1000; page++) {
             String url = clistUrl
-                    + "?pn=" + page + "&pz=200&po=1&np=1&fltt=2&invt=2&fid=f12&fs=" + fs
+                    + "?pn=" + page + "&pz=100&po=1&np=1&fltt=2&invt=2&fid=f12&fs=" + fs
                     + "&fields=f12,f13,f14";
-            JsonNode data;
-            try {
-                data = fetchJson(url, "security-list").path("data");
-            } catch (UpstreamException e) {
-                if (page == 1) {
-                    throw e;
-                }
-                log.warn("[行情] 证券列表第 {} 页失败，提前结束: {}", page, e.getMessage());
-                break;
+            JsonNode data = fetchJson(url, "security-list").path("data");
+            long reported = data.path("total").asLong(-1);
+            if (reported < 0 || (total >= 0 && total != reported)) {
+                throw new UpstreamException("security-list total missing or changed during pagination");
             }
-            if (data.isMissingNode() || data.isNull()) {
-                break;
+            total = reported;
+            if (total == 0) {
+                throw new UpstreamException("security-list empty universe");
             }
-            total = data.path("total").asLong(total);
             JsonNode diff = data.path("diff");
             if (!diff.isArray() || diff.isEmpty()) {
-                break;
+                throw new UpstreamException("security-list incomplete at page " + page);
             }
             for (JsonNode row : diff) {
-                String code = row.path("f12").asText();
-                String name = row.path("f14").asText();
-                if (code.isBlank() || name.isBlank()) {
-                    continue;
+                String code = row.path("f12").asText("").trim();
+                String name = row.path("f14").asText("").trim();
+                int market = row.path("f13").asInt(-1);
+                if (code.isBlank() || name.isBlank() || market < 0
+                        || !seen.add(market + "." + code)) {
+                    throw new UpstreamException("security-list invalid or duplicate row at page " + page);
                 }
-                result.add(new UpstreamSecurity(code, row.path("f13").asInt(), name));
+                result.add(new UpstreamSecurity(code, market, name));
             }
-            page++;
+            if (result.size() == total) {
+                return result;
+            }
+            if (result.size() > total) {
+                throw new UpstreamException("security-list count exceeds total");
+            }
         }
-        return result;
+        throw new UpstreamException("security-list exceeded pagination limit");
     }
 
     /**

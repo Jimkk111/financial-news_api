@@ -214,9 +214,9 @@ public class SinaQuoteProvider implements QuoteProvider {
 
     /** 新浪请求键：沪 sh + code / 深 sz + code / 港 rt_hk + 5 位 code / 美股 gb_ + 小写代码 */
     private String toSinaKey(UpstreamTarget target) {
-        String code = target.symbol().substring(0, target.symbol().indexOf('.'));
+        String code = target.symbol().substring(0, target.symbol().lastIndexOf('.'));
         return switch (target.market()) {
-            case CN -> (target.symbol().endsWith(".SH") ? "sh" : "sz") + code;
+            case CN -> (target.symbol().endsWith(".SH") ? "sh" : target.symbol().endsWith(".BJ") ? "bj" : "sz") + code;
             case HK -> "rt_hk" + code;
             case US -> "gb_" + code.toLowerCase();
         };

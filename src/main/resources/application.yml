@@ -194,6 +194,7 @@ quote:
   sync:
     calendar-cron: "0 0 3 * * *"      # 交易日历生成/校准
     security-cron: "0 10 3 * * *"     # 标的主表全量同步
+    security-retry-ms: 300000          # 当日未完成同步的市场每5分钟重试
     calendar-forward-days: 90         # 日历至少前瞻天数
   indices:                            # 指数卡清单与展示顺序
     CN: [ "000001.SH", "399001.SZ", "399006.SZ", "000300.SH" ]

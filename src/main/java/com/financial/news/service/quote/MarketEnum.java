@@ -13,7 +13,7 @@ import java.util.Arrays;
  */
 public enum MarketEnum {
 
-    /** A股（沪深） */
+    /** A股（沪深北） */
     CN("CNY"),
     /** 港股 */
     HK("HKD"),
