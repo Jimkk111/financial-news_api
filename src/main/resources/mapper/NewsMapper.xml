@@ -23,6 +23,22 @@
         <result column="deleted_at" property="deletedAt"/>
     </resultMap>
 
+    <resultMap id="NewsTagsResultMap" type="com.financial.news.entity.News">
+        <id column="news_id" property="id"/>
+        <collection property="tags" ofType="com.financial.news.entity.Tag" notNullColumn="tag_id">
+            <id column="tag_id" property="id"/>
+            <result column="tag_name" property="name"/>
+        </collection>
+    </resultMap>
+
+    <select id="selectTagsByNewsIds" resultMap="NewsTagsResultMap">
+        SELECT nt.news_id, t.id AS tag_id, t.name AS tag_name
+        FROM news_tags nt
+        INNER JOIN tags t ON t.id = nt.tag_id
+        WHERE nt.news_id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+        ORDER BY nt.news_id, t.id
+    </select>
     <!-- 全列（含 content_json） -->
     <sql id="allColumns">
         id, title, summary, content, content_json, publish_time, source, url, content_fingerprint,

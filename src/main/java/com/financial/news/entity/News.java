@@ -67,6 +67,9 @@ public class News {
     /** 分类 ID */
     private Integer categoryId;
 
+    /** 列表响应附带的标签，不对应 news 表字段 */
+    private List<Tag> tags;
+
     /** 发布用户 ID */
     private Integer userId;
 

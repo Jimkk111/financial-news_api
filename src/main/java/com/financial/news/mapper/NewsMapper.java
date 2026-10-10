@@ -30,6 +30,9 @@ public interface NewsMapper {
                               @Param("offset") int offset,
                               @Param("limit") int limit);
 
+    /** 一次查询整页新闻的关联标签 */
+    List<News> selectTagsByNewsIds(@Param("ids") List<Integer> ids);
+
     long countListPage(@Param("categoryId") Integer categoryId);
 
     /**

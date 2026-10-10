@@ -15,6 +15,8 @@ import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -64,6 +66,7 @@ public class NewsService {
         long total = newsMapper.countListPage(categoryId);
         List<News> records = total == 0 ? List.of()
                 : newsMapper.selectListPage(categoryId, "popular".equals(sort), (page - 1) * pageSize, pageSize);
+        attachTags(records);
         return new Result.PageResult<>(records, total, page, pageSize);
     }
 
@@ -219,9 +222,18 @@ public class NewsService {
         long total = newsMapper.countSearch(keyword);
         List<News> records = total == 0 ? List.of()
                 : newsMapper.searchPage(keyword, (page - 1) * pageSize, pageSize);
+        attachTags(records);
         return new Result.PageResult<>(records, total, page, pageSize);
     }
 
+    /** 批量补齐列表和搜索结果的标签，避免逐条查询。 */
+    private void attachTags(List<News> records) {
+        if (records.isEmpty()) return;
+        List<Integer> ids = records.stream().map(News::getId).toList();
+        Map<Integer, List<Tag>> tagsByNewsId = newsMapper.selectTagsByNewsIds(ids).stream()
+                .collect(Collectors.toMap(News::getId, News::getTags));
+        records.forEach(news -> news.setTags(tagsByNewsId.getOrDefault(news.getId(), List.of())));
+    }
     /**
      * 获取新闻关联的标签
      */
