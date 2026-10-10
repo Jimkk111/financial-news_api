@@ -150,6 +150,15 @@ public class GlobalExceptionHandler {
                 .body(Result.fail(ErrorCode.QUOTE_UPSTREAM_FAILED));
     }
 
+    @ExceptionHandler(com.financial.news.service.quote.provider.UpstreamSymbolUnavailableException.class)
+    public ResponseEntity<Result<Void>> handleUnavailableChart(
+            com.financial.news.service.quote.provider.UpstreamSymbolUnavailableException ex,
+            HttpServletRequest request) {
+        log.info("[行情图表未收录] URI:{}, Message:{}", request.getRequestURI(), ex.getMessage());
+        return ResponseEntity.status(ErrorCode.QUOTE_CHART_UNAVAILABLE.getHttpStatus())
+                .body(Result.fail(ErrorCode.QUOTE_CHART_UNAVAILABLE));
+    }
+
     /**
      * 处理其他未知异常
      */

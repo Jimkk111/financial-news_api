@@ -65,6 +65,7 @@ public enum ErrorCode {
     QUOTE_MARKET_INVALID(400, "QUOTE_MARKET_INVALID", "行情市场标识无效"),
     QUOTE_SYMBOL_INVALID(400, "QUOTE_SYMBOL_INVALID", "行情标的标识无效"),
     QUOTE_NOT_FOUND(404, "QUOTE_NOT_FOUND", "行情标的不存在"),
+    QUOTE_CHART_UNAVAILABLE(404, "QUOTE_CHART_UNAVAILABLE", "该标的暂无可用图表数据"),
     QUOTE_UPSTREAM_FAILED(502, "QUOTE_UPSTREAM_FAILED", "行情数据源暂时不可用，请稍后重试"),
 
     // ========== 新闻相关 ==========

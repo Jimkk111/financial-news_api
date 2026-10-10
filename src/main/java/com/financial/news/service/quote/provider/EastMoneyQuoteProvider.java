@@ -31,6 +31,7 @@ import java.util.Set;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.nio.charset.StandardCharsets;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * 东方财富行情数据源（主源，非官方接口，字段经防腐层在此收口）
@@ -57,6 +58,8 @@ public class EastMoneyQuoteProvider implements QuoteProvider {
     private final String trendUrl;
     private final String klineUrl;
     private final String clistUrl;
+    private final String suggestUrl;
+    private final Map<String, SecidResolution> resolvedSecids = new ConcurrentHashMap<>();
     private final OkHttpClient httpClient;
     private final OkHttpClient securityListClient;
     private final ObjectMapper objectMapper;
@@ -66,6 +69,7 @@ public class EastMoneyQuoteProvider implements QuoteProvider {
         this.trendUrl = properties.getProvider().getEastMoneyHisBaseUrl() + "/api/qt/stock/trends2/get";
         this.klineUrl = properties.getProvider().getEastMoneyHisBaseUrl() + "/api/qt/stock/kline/get";
         this.clistUrl = properties.getProvider().getEastMoneyBaseUrl() + "/api/qt/clist/get";
+        this.suggestUrl = properties.getProvider().getEastMoneySuggestBaseUrl() + "/api/suggest/get";
         this.httpClient = new OkHttpClient.Builder()
                 .connectTimeout(Duration.ofMillis(properties.getProvider().getConnectTimeoutMs()))
                 .readTimeout(Duration.ofMillis(properties.getProvider().getReadTimeoutMs()))
@@ -156,9 +160,7 @@ public class EastMoneyQuoteProvider implements QuoteProvider {
 
     @Override
     public TrendData getTrend(UpstreamTarget target) {
-        if (target.secid().startsWith("sina:")) {
-            throw new UpstreamException("eastmoney secid not yet known for " + target.symbol());
-        }
+        target = resolveChartTarget(target);
         String url = trendUrl + "?secid=" + target.secid()
                 + "&ndays=1&iscr=0&fields1=f1,f2,f3,f7,f8&fields2=f51,f53,f56,f58";
         JsonNode data = fetchJson(url, "trend").path("data");
@@ -183,9 +185,7 @@ public class EastMoneyQuoteProvider implements QuoteProvider {
 
     @Override
     public List<KlineBar> getKline(UpstreamTarget target, int fetchCount) {
-        if (target.secid().startsWith("sina:")) {
-            throw new UpstreamException("eastmoney secid not yet known for " + target.symbol());
-        }
+        target = resolveChartTarget(target);
         String url = klineUrl + "?secid=" + target.secid()
                 + "&klt=101&fqt=1&lmt=" + fetchCount + "&end=20500101&fields1=f1,f2,f3&fields2=f51,f52,f53,f54,f55,f56,f57";
         JsonNode data = fetchJson(url, "kline").path("data");
@@ -338,6 +338,53 @@ public class EastMoneyQuoteProvider implements QuoteProvider {
     /**
      * 单次 GET，失败自动重试一次；两次都失败抛 UpstreamException
      */
+    /** 官方目录标的首次请求图表时查询真实 secid，避免猜交易所前缀。 */
+    private UpstreamTarget resolveChartTarget(UpstreamTarget target) {
+        if (!target.secid().startsWith("sina:")) {
+            return target;
+        }
+        long now = System.currentTimeMillis();
+        SecidResolution cached = resolvedSecids.get(target.symbol());
+        if (cached != null && cached.expiresAt() > now) {
+            if (cached.secid() == null) {
+                throw new UpstreamSymbolUnavailableException("eastmoney has no chart mapping for " + target.symbol());
+            }
+            return new UpstreamTarget(cached.secid(), target.symbol(), target.secType(), target.market());
+        }
+        String code = target.symbol().substring(0, target.symbol().lastIndexOf('.'));
+        String url = HttpUrl.get(suggestUrl).newBuilder()
+                .addQueryParameter("input", code)
+                .addQueryParameter("type", "14")
+                .addQueryParameter("count", "30")
+                .build().toString();
+        JsonNode table = fetchJson(url, "security-lookup").path("QuotationCodeTable");
+        if (table.isMissingNode() || table.path("Status").asInt(-1) != 0) {
+            throw new UpstreamException("eastmoney security lookup invalid response");
+        }
+        JsonNode rows = table.path("Data");
+        if (!rows.isArray() && !(rows.isNull() && table.path("TotalCount").asInt(-1) == 0)) {
+            throw new UpstreamException("eastmoney security lookup missing rows");
+        }
+        if (rows.isArray()) {
+            for (JsonNode row : rows) {
+                String candidateCode = row.path("Code").asText("");
+                String market = row.path("MktNum").asText("");
+                String secid = row.path("QuoteID").asText("");
+                if (code.equalsIgnoreCase(candidateCode)
+                        && Set.of("105", "106", "107").contains(market)
+                        && secid.equalsIgnoreCase(market + "." + code)) {
+                    resolvedSecids.put(target.symbol(), new SecidResolution(secid, now + Duration.ofHours(24).toMillis()));
+                    return new UpstreamTarget(secid, target.symbol(), target.secType(), target.market());
+                }
+            }
+        }
+        resolvedSecids.put(target.symbol(), new SecidResolution(null, now + Duration.ofMinutes(5).toMillis()));
+        throw new UpstreamSymbolUnavailableException("eastmoney has no chart mapping for " + target.symbol());
+    }
+
+    private record SecidResolution(String secid, long expiresAt) {
+    }
+
     private JsonNode fetchJson(String url, String scene) {
         IOException lastError = null;
         for (int attempt = 0; attempt < 2; attempt++) {

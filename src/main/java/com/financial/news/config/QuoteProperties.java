@@ -40,6 +40,7 @@ public class QuoteProperties {
         /** 上游地址可配置（联调/测试可指向本地 mock，生产保持默认） */
         private String eastMoneyBaseUrl = "https://push2.eastmoney.com";
         private String eastMoneyHisBaseUrl = "https://push2his.eastmoney.com";
+        private String eastMoneySuggestBaseUrl = "https://searchapi.eastmoney.com";
         private String sinaBaseUrl = "https://hq.sinajs.cn";
     }
 

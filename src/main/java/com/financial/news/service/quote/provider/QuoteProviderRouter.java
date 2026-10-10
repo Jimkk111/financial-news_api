@@ -34,9 +34,6 @@ public class QuoteProviderRouter {
                 .sorted((a, b) -> Boolean.compare(b.name().equals(primary), a.name().equals(primary)))
                 .toList();
         this.properties = properties;
-        providers.forEach(p -> breakers.put(p.name(), new UpstreamBreaker(
-                properties.getProvider().getBreakerFailThreshold(),
-                properties.getProvider().getBreakerOpenSeconds() * 1000L)));
     }
 
     public List<QuoteSnapshot> getSnapshots(List<UpstreamTarget> targets) {
@@ -49,7 +46,7 @@ public class QuoteProviderRouter {
             if (!provider.supportsSnapshots() || remaining.isEmpty()) {
                 continue;
             }
-            UpstreamBreaker breaker = breakers.get(provider.name());
+            UpstreamBreaker breaker = breaker(provider.name() + ":snapshot");
             if (breaker != null && !breaker.allow()) {
                 log.info("[行情] 熔断中，跳过数据源 {} (snapshot)", provider.name());
                 continue;
@@ -82,16 +79,17 @@ public class QuoteProviderRouter {
     }
 
     public TrendData getTrend(UpstreamTarget target) {
-        return route("trend", QuoteProvider::supportsTrend,
+        return route("trend", target.market().name(), QuoteProvider::supportsTrend,
                 provider -> provider.getTrend(target));
     }
 
     public List<KlineBar> getKline(UpstreamTarget target, int fetchCount) {
-        return route("kline", QuoteProvider::supportsKline,
+        return route("kline", target.market().name(), QuoteProvider::supportsKline,
                 provider -> provider.getKline(target, fetchCount));
     }
 
     private <T> T route(String scene,
+                        String market,
                         java.util.function.Predicate<QuoteProvider> capability,
                         java.util.function.Function<QuoteProvider, T> action) {
         Exception lastError = null;
@@ -99,7 +97,7 @@ public class QuoteProviderRouter {
             if (!capability.test(provider)) {
                 continue;
             }
-            UpstreamBreaker breaker = breakers.get(provider.name());
+            UpstreamBreaker breaker = breaker(provider.name() + ":" + scene + ":" + market);
             if (breaker != null && !breaker.allow()) {
                 log.info("[行情] 熔断中，跳过数据源 {} ({})", provider.name(), scene);
                 continue;
@@ -112,12 +110,21 @@ public class QuoteProviderRouter {
                 return result;
             } catch (Exception e) {
                 lastError = e;
-                if (breaker != null) {
+                if (breaker != null && !(e instanceof UpstreamSymbolUnavailableException)) {
                     breaker.recordFailure();
                 }
                 log.warn("[行情] 数据源 {} {} 失败: {}", provider.name(), scene, e.getMessage());
             }
         }
+        if (lastError instanceof UpstreamSymbolUnavailableException unavailable) {
+            throw unavailable;
+        }
         throw new UpstreamException("quote " + scene + " all providers failed", lastError);
+    }
+
+    private UpstreamBreaker breaker(String key) {
+        return breakers.computeIfAbsent(key, k -> new UpstreamBreaker(
+                properties.getProvider().getBreakerFailThreshold(),
+                properties.getProvider().getBreakerOpenSeconds() * 1000L));
     }
 }
