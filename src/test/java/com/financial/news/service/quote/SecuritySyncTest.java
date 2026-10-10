@@ -23,10 +23,10 @@ class SecuritySyncTest {
         AtomicInteger hkCalls = new AtomicInteger();
         when(provider.listAllSecurities(anyString())).thenAnswer(invocation -> {
             String fs = invocation.getArgument(0);
-            if (fs.equals("m:116") && hkCalls.incrementAndGet() == 1) {
+            if (fs.equals("m:116+t:3") && hkCalls.incrementAndGet() == 1) {
                 throw new UpstreamException("temporary failure");
             }
-            int market = fs.equals("m:116") ? 116 : fs.contains("105") ? 105 : 1;
+            int market = fs.equals("m:116+t:3") ? 116 : fs.contains("105") ? 105 : 1;
             List<UpstreamSecurity> rows = IntStream.range(0, 100)
                     .mapToObj(i -> new UpstreamSecurity(market == 116 ? "%05d".formatted(i)
                             : market == 105 ? "T" + i : "%06d".formatted(600000 + i), market, "stock"))

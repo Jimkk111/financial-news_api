@@ -54,7 +54,7 @@ public class QuoteSearchService {
             String symbol = entry.getKey().split("\\|", 2)[0];
             Integer secType = Integer.valueOf(entry.getKey().split("\\|", 2)[1]);
             QuoteSecurity security = securityMapper.selectBySymbolAndType(symbol, secType);
-            if (security == null) {
+            if (security == null || Integer.valueOf(QuoteSecurity.STATUS_NON_STOCK).equals(security.getStatus())) {
                 continue;
             }
             items.add(new QuoteSearchItemVO(

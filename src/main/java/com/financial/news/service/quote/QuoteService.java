@@ -462,6 +462,9 @@ public class QuoteService {
     private QuoteSecurity resolveSecurity(QuoteSecType type, String symbol, MarketEnum market) {
         QuoteSecurity security = securityMapper.selectBySymbolAndType(symbol, type.getDbValue());
         if (security != null) {
+            if (Integer.valueOf(QuoteSecurity.STATUS_NON_STOCK).equals(security.getStatus())) {
+                throw new BusinessException(ErrorCode.QUOTE_NOT_FOUND);
+            }
             return security;
         }
         String secid = deriveSecid(type, market, symbol);

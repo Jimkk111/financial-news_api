@@ -3,6 +3,7 @@ package com.financial.news.service.quote.provider;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.financial.news.config.QuoteProperties;
+import com.financial.news.service.quote.StockUniverseFilter;
 import com.financial.news.service.quote.provider.model.KlineBar;
 import com.financial.news.service.quote.provider.model.QuoteSnapshot;
 import com.financial.news.service.quote.provider.model.TrendData;
@@ -216,21 +217,12 @@ public class EastMoneyQuoteProvider implements QuoteProvider {
     /**
      * 证券列表全量分页（主表同步用，非 SPI 能力）
      *
-     * @param fs 板块过滤，如 "m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23"（沪深）、"m:116"（港股）、"m:105,m:106,m:107"（美股）
+     * @param fs 板块过滤，如 "m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23"（沪深）、"m:116+t:3"（港股正股）、"m:105,m:106,m:107"（美股官方目录）
      */
     public List<UpstreamSecurity> listAllSecurities(String fs) {
-        // 三交易所合并查询会被上游关闭连接；每个交易所完整分页后再合并。
+        // 美股完整目录提供 ETF 等类型标志；不要把交易所所有证券统一当成股票。
         if ("m:105,m:106,m:107".equals(fs)) {
-            List<UpstreamSecurity> all = new ArrayList<>();
-            try {
-                for (String exchange : fs.split(",")) {
-                    all.addAll(listSecurityPartition(exchange));
-                }
-                return all;
-            } catch (UpstreamException e) {
-                log.warn("[行情] 东方财富美股完整名单不可用，切换 Nasdaq 官方证券目录: {}", e.getMessage());
-                return listNasdaqDirectory();
-            }
+            return listNasdaqDirectory();
         }
         return listSecurityPartition(fs);
     }
@@ -273,16 +265,22 @@ public class EastMoneyQuoteProvider implements QuoteProvider {
                 }
                 String code = columns[0].trim().toUpperCase(Locale.ROOT);
                 String name = columns[1].trim();
+                String etf = columns[nasdaq ? 6 : 4].trim();
                 if (!"N".equals(testIssue) || !code.matches("[A-Z0-9._$-]{1,14}") || name.isEmpty()) {
                     throw new UpstreamException("Nasdaq directory " + file + " invalid symbol or name");
                 }
+                if (!Set.of("Y", "N").contains(etf)) {
+                    throw new UpstreamException("Nasdaq directory " + file + " invalid ETF flag");
+                }
                 // -1 表示官方美股身份，报价由已知 secid 或 Sina 解析。
-                if (rows.putIfAbsent(code, new UpstreamSecurity(code, -1, name)) != null) {
+                if (rows.putIfAbsent(code, new UpstreamSecurity(code, -1, name,
+                        StockUniverseFilter.isUsStock(code, name, etf))) != null) {
                     throw new UpstreamException("Nasdaq directory duplicate symbol " + code);
                 }
             }
         }
-        log.info("[行情] Nasdaq 官方证券目录完整读取：{} 条（已排除测试证券）", rows.size());
+        log.info("[行情] Nasdaq 官方证券目录完整读取：{} 条，其中股票 {} 条（已排除测试证券）",
+                rows.size(), rows.values().stream().filter(UpstreamSecurity::stock).count());
         return new ArrayList<>(rows.values());
     }
 

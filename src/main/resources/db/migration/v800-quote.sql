@@ -17,7 +17,7 @@ CREATE TABLE IF NOT EXISTS `quote_security` (
     `market` VARCHAR(4) NOT NULL COMMENT '市场：CN/HK/US',
     `name` VARCHAR(64) NOT NULL COMMENT '证券名称',
     `pinyin_abbr` VARCHAR(40) DEFAULT NULL COMMENT '名称拼音首字母（大写，仅字母数字），如 GZMT',
-    `status` TINYINT NOT NULL DEFAULT 1 COMMENT '状态：1 正常 2 已退市',
+    `status` TINYINT NOT NULL DEFAULT 1 COMMENT '状态：1 正常 2 已退市 3 已排除出股票范围',
     `currency` VARCHAR(4) NOT NULL COMMENT '币种代码：CNY/HKD/USD',
     `upstream_secid` VARCHAR(24) NOT NULL COMMENT '主源内部标识，如 1.600519、116.00700、124.HSTECH',
     `missing_days` INT NOT NULL DEFAULT 0 COMMENT '连续同步未出现次数（退市判定）',

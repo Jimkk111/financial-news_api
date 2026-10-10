@@ -33,7 +33,7 @@
     <select id="selectBySymbolsAndType" resultMap="BaseResultMap">
         SELECT <include refid="BaseColumns"/>
         FROM quote_security
-        WHERE sec_type = #{secType} AND symbol IN
+        WHERE sec_type = #{secType} AND status &lt;&gt; 3 AND symbol IN
         <foreach collection="symbols" item="s" open="(" separator="," close=")">#{s}</foreach>
     </select>
 
@@ -76,7 +76,7 @@
     <select id="searchBySymbolPrefix" resultMap="BaseResultMap">
         SELECT <include refid="BaseColumns"/>
         FROM quote_security
-        WHERE UPPER(symbol) LIKE CONCAT(#{prefix}, '%')
+        WHERE status &lt;&gt; 3 AND UPPER(symbol) LIKE CONCAT(#{prefix}, '%')
         ORDER BY LENGTH(symbol), symbol
         LIMIT #{limit}
     </select>
@@ -84,7 +84,7 @@
     <select id="searchByNameLike" resultMap="BaseResultMap">
         SELECT <include refid="BaseColumns"/>
         FROM quote_security
-        WHERE name LIKE CONCAT('%', #{keyword}, '%')
+        WHERE status &lt;&gt; 3 AND name LIKE CONCAT('%', #{keyword}, '%')
         ORDER BY LENGTH(name), symbol
         LIMIT #{limit}
     </select>
@@ -92,7 +92,7 @@
     <select id="searchByPinyinPrefix" resultMap="BaseResultMap">
         SELECT <include refid="BaseColumns"/>
         FROM quote_security
-        WHERE pinyin_abbr LIKE CONCAT(#{prefix}, '%')
+        WHERE status &lt;&gt; 3 AND pinyin_abbr LIKE CONCAT(#{prefix}, '%')
         ORDER BY LENGTH(pinyin_abbr), symbol
         LIMIT #{limit}
     </select>
@@ -110,6 +110,43 @@
         UPDATE quote_security
         SET status = 1, missing_days = 0, last_active_date = #{lastActiveDate}
         WHERE symbol = #{symbol} AND sec_type = #{secType}
+    </update>
+
+    <update id="excludeMissingStocks">
+        UPDATE quote_security SET status = 3
+        WHERE market = #{market} AND sec_type = 1 AND status &lt;&gt; 3
+          AND symbol NOT IN
+        <foreach collection="symbols" item="s" open="(" separator="," close=")">#{s}</foreach>
+    </update>
+
+    <update id="excludeLegacyHkStructuredProducts">
+        UPDATE quote_security SET status = 3
+        WHERE market = 'HK' AND sec_type = 1 AND status &lt;&gt; 3
+          AND (
+              CAST(SUBSTRING_INDEX(symbol, '.', 1) AS UNSIGNED) BETWEEN 10000 AND 29999
+              OR CAST(SUBSTRING_INDEX(symbol, '.', 1) AS UNSIGNED) BETWEEN 47000 AND 48999
+              OR CAST(SUBSTRING_INDEX(symbol, '.', 1) AS UNSIGNED) BETWEEN 49500 AND 69999
+              OR CAST(SUBSTRING_INDEX(symbol, '.', 1) AS UNSIGNED) BETWEEN 04800 AND 04999
+              OR CAST(SUBSTRING_INDEX(symbol, '.', 1) AS UNSIGNED) BETWEEN 02800 AND 02849
+              OR CAST(SUBSTRING_INDEX(symbol, '.', 1) AS UNSIGNED) BETWEEN 03000 AND 03199
+              OR CAST(SUBSTRING_INDEX(symbol, '.', 1) AS UNSIGNED) BETWEEN 03400 AND 03599
+              OR CAST(SUBSTRING_INDEX(symbol, '.', 1) AS UNSIGNED) BETWEEN 07200 AND 07399
+              OR CAST(SUBSTRING_INDEX(symbol, '.', 1) AS UNSIGNED) BETWEEN 07500 AND 07599
+              OR CAST(SUBSTRING_INDEX(symbol, '.', 1) AS UNSIGNED) BETWEEN 07700 AND 07799
+              OR CAST(SUBSTRING_INDEX(symbol, '.', 1) AS UNSIGNED) BETWEEN 09000 AND 09599
+              OR CAST(SUBSTRING_INDEX(symbol, '.', 1) AS UNSIGNED) BETWEEN 09700 AND 09849
+              OR CAST(SUBSTRING_INDEX(symbol, '.', 1) AS UNSIGNED) BETWEEN 41500 AND 41599
+              OR CAST(SUBSTRING_INDEX(symbol, '.', 1) AS UNSIGNED) BETWEEN 82800 AND 82849
+              OR CAST(SUBSTRING_INDEX(symbol, '.', 1) AS UNSIGNED) BETWEEN 83000 AND 83199
+              OR CAST(SUBSTRING_INDEX(symbol, '.', 1) AS UNSIGNED) BETWEEN 83400 AND 83599
+              OR CAST(SUBSTRING_INDEX(symbol, '.', 1) AS UNSIGNED) BETWEEN 87200 AND 87399
+              OR CAST(SUBSTRING_INDEX(symbol, '.', 1) AS UNSIGNED) BETWEEN 87500 AND 87599
+              OR CAST(SUBSTRING_INDEX(symbol, '.', 1) AS UNSIGNED) BETWEEN 87700 AND 87799
+              OR CAST(SUBSTRING_INDEX(symbol, '.', 1) AS UNSIGNED) BETWEEN 89200 AND 89599
+              OR CAST(SUBSTRING_INDEX(symbol, '.', 1) AS UNSIGNED) BETWEEN 04600 AND 04699
+              OR CAST(SUBSTRING_INDEX(symbol, '.', 1) AS UNSIGNED) BETWEEN 84600 AND 84699
+              OR name REGEXP '[一二三四五六七八九十甲乙0-9]{2}[牛熊购沽購][A-Z0-9]+[#*]?$'
+          )
     </update>
 
     <select id="countAll" resultType="long">

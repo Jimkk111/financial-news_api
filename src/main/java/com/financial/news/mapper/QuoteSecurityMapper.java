@@ -30,6 +30,13 @@ public interface QuoteSecurityMapper {
     /** 新增或更新（uk_symbol_type 冲突时更新）；名称变更时调用方需重算拼音 */
     int upsert(QuoteSecurity security);
 
+    /** 完整正股名单同步完成后隐藏旧的非正股记录，保留数据。 */
+    int excludeMissingStocks(@Param("market") String market,
+                             @Param("symbols") List<String> symbols);
+
+    /** 根据港股代码区间和结构性产品命名规则清理已误收录记录。 */
+    int excludeLegacyHkStructuredProducts();
+
     /** 搜索：代码前缀（symbol 前缀，如 600519、600519.SH、AAPL） */
     List<QuoteSecurity> searchBySymbolPrefix(@Param("prefix") String prefix, @Param("limit") int limit);
 

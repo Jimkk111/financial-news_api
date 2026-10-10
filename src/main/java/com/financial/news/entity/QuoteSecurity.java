@@ -22,6 +22,7 @@ public class QuoteSecurity {
 
     public static final int STATUS_ACTIVE = 1;
     public static final int STATUS_DELISTED = 2;
+    public static final int STATUS_NON_STOCK = 3;
 
     private Integer id;
 
@@ -40,7 +41,7 @@ public class QuoteSecurity {
     /** 名称拼音首字母（大写，仅字母数字），如 GZMT */
     private String pinyinAbbr;
 
-    /** 状态：1 正常 2 已退市 */
+    /** 状态：1 正常 2 已退市 3 非股票或已排除出正股范围 */
     private Integer status;
 
     /** 币种代码：CNY/HKD/USD */
