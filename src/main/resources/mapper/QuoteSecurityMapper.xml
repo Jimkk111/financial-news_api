@@ -68,7 +68,7 @@
             pinyin_abbr = VALUES(pinyin_abbr),
             status = VALUES(status),
             currency = VALUES(currency),
-            upstream_secid = VALUES(upstream_secid),
+            upstream_secid = IF(VALUES(upstream_secid) LIKE 'sina:%', upstream_secid, VALUES(upstream_secid)),
             missing_days = 0,
             last_active_date = VALUES(last_active_date)
     </insert>

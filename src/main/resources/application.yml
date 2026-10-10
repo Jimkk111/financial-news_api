@@ -178,6 +178,7 @@ quote:
     primary: eastmoney            # 主源：eastmoney | sina
     connect-timeout-ms: 2000
     read-timeout-ms: 4000
+    security-list-read-timeout-ms: 15000 # 全量名单独立超时
     # 单位为秒：连续失败次数达到 threshold 熔断 open-seconds
     breaker-fail-threshold: 5
     breaker-open-seconds: 30

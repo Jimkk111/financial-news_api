@@ -31,6 +31,8 @@ public class QuoteProperties {
         private String primary = "eastmoney";
         private int connectTimeoutMs = 2000;
         private int readTimeoutMs = 4000;
+        /** 全量名单请求较慢，使用独立超时，不影响页面报价请求。 */
+        private int securityListReadTimeoutMs = 15000;
         /** 熔断阈值：连续失败次数 */
         private int breakerFailThreshold = 5;
         /** 熔断打开持续时间（秒） */

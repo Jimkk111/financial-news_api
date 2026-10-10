@@ -131,22 +131,26 @@ public class SecurityMasterSyncJob {
         }
         for (UpstreamSecurity row : rows) {
             String symbol = toSymbol(row);
+            String name = truncate(row.name(), 64);
             securityMapper.upsert(QuoteSecurity.builder()
                     .symbol(symbol)
                     .secType(QuoteSecType.STOCK.getDbValue())
                     .market(market.name())
-                    .name(row.name())
-                    .pinyinAbbr(PinyinAbbrUtil.abbr(row.name()))
+                    .name(name)
+                    .pinyinAbbr(truncate(PinyinAbbrUtil.abbr(name), 40))
                     .status(QuoteSecurity.STATUS_ACTIVE)
                     .currency(market.getCurrency())
-                    .upstreamSecid(row.marketNum() + "." + row.code())
+                    .upstreamSecid(row.marketNum() == -1 ? "sina:" + row.code()
+                            : row.marketNum() + "." + row.code())
                     .missingDays(0)
                     .lastActiveDate(today)
                     .build());
         }
         int delistedNow = 0;
+        // 备用目录与主源覆盖范围不同，只补充/更新，不据此判定旧标的退市。
+        boolean officialDirectory = rows.stream().anyMatch(row -> row.marketNum() == -1);
         for (QuoteSecurity active : securityMapper.selectActiveStocksByMarket(market.name())) {
-            if (seen.contains(active.getSymbol())) {
+            if (officialDirectory || seen.contains(active.getSymbol())) {
                 continue;
             }
             delistedNow += securityMapper.incrementMissing(active.getSymbol(), today, delistThreshold);
@@ -162,6 +166,7 @@ public class SecurityMasterSyncJob {
             case 0 -> code.startsWith("4") || code.startsWith("8") || code.startsWith("92") ? "BJ" : "SZ";
             case 116 -> "HK";
             case 105, 106, 107 -> "US";
+            case -1 -> "US";
             default -> null;
         };
         if (suffix == null) {
@@ -170,9 +175,16 @@ public class SecurityMasterSyncJob {
         boolean valid = switch (suffix) {
             case "SH", "SZ", "BJ" -> code.matches("\\d{6}");
             case "HK" -> code.matches("\\d{5}");
-            case "US" -> code.matches("[A-Z0-9._]{1,10}");
+            case "US" -> code.matches("[A-Z0-9._$-]{1,14}");
             default -> false;
         };
         return valid ? code + "." + suffix : null;
+    }
+
+    private String truncate(String value, int maxLength) {
+        if (value == null || value.codePointCount(0, value.length()) <= maxLength) {
+            return value;
+        }
+        return value.substring(0, value.offsetByCodePoints(0, maxLength));
     }
 }

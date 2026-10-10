@@ -661,3 +661,12 @@ quote:
 分页抓取按实际累计条数对照上游total，后续页失败、重复行、无效行、total变化或提前空页均拒绝整批数据。整批通过格式和市场校验后才upsert；少于100条或相比当前在市数量减少超过20%拒绝本次同步。缺失退市计数每个自然日最多增加一次，失败分页不得触发退市判定。上游连接失败保留原数据并持续重试；本次开发环境的真实东财请求仍失败，不能把通过mock测试等同于已完成线上全量同步。
 
 北交所筛选参考 [AKShare上游适配源码](https://github.com/akfamily/akshare/blob/main/akshare/stock_feature/stock_hist_em.py)。完整前端契约见 `quote-frontend-integration.md` 第10节。
+## 美股名单连接失败修复（2026-10-10）
+
+- 本地日志确认沪深北同步成功，港股/美股名单请求反复出现 `unexpected end of stream`。
+- 美股东方财富名单按 105/106/107 分别完整分页；请求使用浏览器 User-Agent、行情页 Referer 和编码后的参数。名单读取使用独立 15 秒超时。
+- 东方财富任一分区失败时，弃用本轮部分名单，完整读取 Nasdaq 官方 `nasdaqlisted.txt` 和 `otherlisted.txt` 两份目录。校验表头、文件结束标记、行格式和代码唯一性，排除测试证券；目录包括股票、ETF、优先股等证券，不包含 OTC 全市场。
+- 官方目录提供英文名称；入库名称/拼音缩写按现有 64/40 字段长度截短。代码支持最多 14 字符及类别后缀。
+- 官方目录不提供东方财富内部 secid：已有 secid 保留，新标的使用 `sina:` 标记并通过 Sina 获取快照。尚未获知 secid 的标的可能没有分时/K线；列表仍保留其身份信息和空报价。
+- 备用目录只更新/补充标的，不根据覆盖差异判定退市。更换源后须重启当前后端，启动同步成功后 `syncComplete` 才为 true。
+- 官方格式说明：[Nasdaq Symbol Directory Definitions](https://www.nasdaqtrader.com/trader.aspx?id=symboldirdefs)。

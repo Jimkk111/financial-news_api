@@ -520,7 +520,7 @@ public class QuoteService {
         boolean valid = switch (suffix) {
             case "SH", "SZ", "BJ" -> code.matches("\\d{6}");
             case "HK" -> type == QuoteSecType.INDEX ? code.matches("[A-Z]{1,10}") : code.matches("\\d{5}");
-            case "US" -> code.matches("[A-Z0-9._]{1,10}");
+            case "US" -> code.matches("[A-Z0-9._$-]{1,14}");
             default -> false;
         };
         if (!valid) {

@@ -11,6 +11,7 @@ import com.financial.news.service.quote.provider.model.UpstreamSecurity;
 import com.financial.news.service.quote.provider.model.UpstreamTarget;
 import lombok.extern.slf4j.Slf4j;
 import okhttp3.OkHttpClient;
+import okhttp3.HttpUrl;
 import okhttp3.Request;
 import okhttp3.Response;
 import okhttp3.ResponseBody;
@@ -27,6 +28,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.HashSet;
 import java.util.Set;
+import java.util.LinkedHashMap;
+import java.util.Locale;
+import java.nio.charset.StandardCharsets;
 
 /**
  * 东方财富行情数据源（主源，非官方接口，字段经防腐层在此收口）
@@ -54,6 +58,7 @@ public class EastMoneyQuoteProvider implements QuoteProvider {
     private final String klineUrl;
     private final String clistUrl;
     private final OkHttpClient httpClient;
+    private final OkHttpClient securityListClient;
     private final ObjectMapper objectMapper;
 
     public EastMoneyQuoteProvider(QuoteProperties properties, ObjectMapper objectMapper) {
@@ -66,6 +71,9 @@ public class EastMoneyQuoteProvider implements QuoteProvider {
                 .readTimeout(Duration.ofMillis(properties.getProvider().getReadTimeoutMs()))
                 .build();
         this.objectMapper = objectMapper;
+        this.securityListClient = httpClient.newBuilder()
+                .readTimeout(Duration.ofMillis(properties.getProvider().getSecurityListReadTimeoutMs()))
+                .build();
     }
 
     @Override
@@ -91,6 +99,11 @@ public class EastMoneyQuoteProvider implements QuoteProvider {
     @Override
     public List<QuoteSnapshot> getSnapshots(List<UpstreamTarget> targets) {
         if (targets == null || targets.isEmpty()) {
+            return List.of();
+        }
+        // 官方目录新标的的内部标识未知，由 Router 的 Sina 备源补报价。
+        targets = targets.stream().filter(t -> !t.secid().startsWith("sina:")).toList();
+        if (targets.isEmpty()) {
             return List.of();
         }
         // 按 secid 重建索引：响应中 f13.f12 即请求时的 secid
@@ -143,6 +156,9 @@ public class EastMoneyQuoteProvider implements QuoteProvider {
 
     @Override
     public TrendData getTrend(UpstreamTarget target) {
+        if (target.secid().startsWith("sina:")) {
+            throw new UpstreamException("eastmoney secid not yet known for " + target.symbol());
+        }
         String url = trendUrl + "?secid=" + target.secid()
                 + "&ndays=1&iscr=0&fields1=f1,f2,f3,f7,f8&fields2=f51,f53,f56,f58";
         JsonNode data = fetchJson(url, "trend").path("data");
@@ -167,6 +183,9 @@ public class EastMoneyQuoteProvider implements QuoteProvider {
 
     @Override
     public List<KlineBar> getKline(UpstreamTarget target, int fetchCount) {
+        if (target.secid().startsWith("sina:")) {
+            throw new UpstreamException("eastmoney secid not yet known for " + target.symbol());
+        }
         String url = klineUrl + "?secid=" + target.secid()
                 + "&klt=101&fqt=1&lmt=" + fetchCount + "&end=20500101&fields1=f1,f2,f3&fields2=f51,f52,f53,f54,f55,f56,f57";
         JsonNode data = fetchJson(url, "kline").path("data");
@@ -200,13 +219,89 @@ public class EastMoneyQuoteProvider implements QuoteProvider {
      * @param fs 板块过滤，如 "m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23"（沪深）、"m:116"（港股）、"m:105,m:106,m:107"（美股）
      */
     public List<UpstreamSecurity> listAllSecurities(String fs) {
+        // 三交易所合并查询会被上游关闭连接；每个交易所完整分页后再合并。
+        if ("m:105,m:106,m:107".equals(fs)) {
+            List<UpstreamSecurity> all = new ArrayList<>();
+            try {
+                for (String exchange : fs.split(",")) {
+                    all.addAll(listSecurityPartition(exchange));
+                }
+                return all;
+            } catch (UpstreamException e) {
+                log.warn("[行情] 东方财富美股完整名单不可用，切换 Nasdaq 官方证券目录: {}", e.getMessage());
+                return listNasdaqDirectory();
+            }
+        }
+        return listSecurityPartition(fs);
+    }
+
+    /** 官方目录只提供证券身份，不推测东方财富内部 secid。 */
+    private List<UpstreamSecurity> listNasdaqDirectory() {
+        Map<String, UpstreamSecurity> rows = new LinkedHashMap<>();
+        for (String file : List.of("nasdaqlisted", "otherlisted")) {
+            Request request = new Request.Builder()
+                    .url("https://www.nasdaqtrader.com/dynamic/SymDir/" + file + ".txt")
+                    .header("User-Agent", "Mozilla/5.0").build();
+            String text;
+            try (Response response = securityListClient.newCall(request).execute()) {
+                if (!response.isSuccessful() || response.body() == null) {
+                    throw new UpstreamException("Nasdaq directory " + file + " http " + response.code());
+                }
+                text = new String(response.body().bytes(), StandardCharsets.UTF_8);
+            } catch (IOException e) {
+                throw new UpstreamException("Nasdaq directory " + file + " request failed", e);
+            }
+            String[] lines = text.split("\\R");
+            boolean nasdaq = "nasdaqlisted".equals(file);
+            String header = nasdaq ? "Symbol|Security Name|" : "ACT Symbol|Security Name|";
+            if (lines.length < 100 || !lines[0].startsWith(header)
+                    || !text.contains("File Creation Time:")) {
+                throw new UpstreamException("Nasdaq directory " + file + " incomplete or invalid");
+            }
+            for (int i = 1; i < lines.length; i++) {
+                String line = lines[i].trim();
+                if (line.isEmpty() || line.startsWith("File Creation Time:")) {
+                    continue;
+                }
+                String[] columns = line.split("\\|", -1);
+                if (columns.length != 8) {
+                    throw new UpstreamException("Nasdaq directory " + file + " invalid row");
+                }
+                String testIssue = columns[nasdaq ? 3 : 6];
+                if ("Y".equals(testIssue)) {
+                    continue;
+                }
+                String code = columns[0].trim().toUpperCase(Locale.ROOT);
+                String name = columns[1].trim();
+                if (!"N".equals(testIssue) || !code.matches("[A-Z0-9._$-]{1,14}") || name.isEmpty()) {
+                    throw new UpstreamException("Nasdaq directory " + file + " invalid symbol or name");
+                }
+                // -1 表示官方美股身份，报价由已知 secid 或 Sina 解析。
+                if (rows.putIfAbsent(code, new UpstreamSecurity(code, -1, name)) != null) {
+                    throw new UpstreamException("Nasdaq directory duplicate symbol " + code);
+                }
+            }
+        }
+        log.info("[行情] Nasdaq 官方证券目录完整读取：{} 条（已排除测试证券）", rows.size());
+        return new ArrayList<>(rows.values());
+    }
+
+    private List<UpstreamSecurity> listSecurityPartition(String fs) {
         List<UpstreamSecurity> result = new ArrayList<>();
         Set<String> seen = new HashSet<>();
         long total = -1;
         for (int page = 1; page <= 1000; page++) {
-            String url = clistUrl
-                    + "?pn=" + page + "&pz=100&po=1&np=1&fltt=2&invt=2&fid=f12&fs=" + fs
-                    + "&fields=f12,f13,f14";
+            String url = HttpUrl.get(clistUrl).newBuilder()
+                    .addQueryParameter("pn", String.valueOf(page))
+                    .addQueryParameter("pz", "100")
+                    .addQueryParameter("po", "1")
+                    .addQueryParameter("np", "1")
+                    .addQueryParameter("fltt", "2")
+                    .addQueryParameter("invt", "2")
+                    .addQueryParameter("fid", "f12")
+                    .addQueryParameter("fs", fs.replace('+', ' '))
+                    .addQueryParameter("fields", "f12,f13,f14")
+                    .build().toString();
             JsonNode data = fetchJson(url, "security-list").path("data");
             long reported = data.path("total").asLong(-1);
             if (reported < 0 || (total >= 0 && total != reported)) {
@@ -248,10 +343,12 @@ public class EastMoneyQuoteProvider implements QuoteProvider {
         for (int attempt = 0; attempt < 2; attempt++) {
             Request request = new Request.Builder()
                     .url(url)
-                    .header("User-Agent", "Mozilla/5.0 (financial-news-api)")
+                    .header("User-Agent", "Mozilla/5.0")
+                    .header("Referer", "https://quote.eastmoney.com/")
                     .get()
                     .build();
-            try (Response response = httpClient.newCall(request).execute()) {
+            OkHttpClient client = "security-list".equals(scene) ? securityListClient : httpClient;
+            try (Response response = client.newCall(request).execute()) {
                 if (!response.isSuccessful()) {
                     throw new UpstreamException("eastmoney " + scene + " http " + response.code());
                 }
