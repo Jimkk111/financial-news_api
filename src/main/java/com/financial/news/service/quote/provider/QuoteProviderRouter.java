@@ -42,17 +42,20 @@ public class QuoteProviderRouter {
         }
         List<QuoteSnapshot> merged = new ArrayList<>();
         List<UpstreamTarget> remaining = targets;
+        Exception lastError = null;
         for (QuoteProvider provider : orderedProviders) {
             if (!provider.supportsSnapshots() || remaining.isEmpty()) {
                 continue;
             }
+            List<UpstreamTarget> eligible = remaining.stream().filter(t -> allowed(provider, t)).toList();
+            if (eligible.isEmpty()) continue;
             UpstreamBreaker breaker = breaker(provider.name() + ":snapshot");
             if (breaker != null && !breaker.allow()) {
                 log.info("[行情] 熔断中，跳过数据源 {} (snapshot)", provider.name());
                 continue;
             }
             try {
-                List<QuoteSnapshot> result = provider.getSnapshots(remaining);
+                List<QuoteSnapshot> result = provider.getSnapshots(eligible);
                 if (breaker != null) {
                     breaker.recordSuccess();
                 }
@@ -66,25 +69,27 @@ public class QuoteProviderRouter {
                         .filter(t -> !covered.contains(t.symbol()))
                         .toList();
             } catch (Exception e) {
-                if (breaker != null) {
+                lastError = e;
+                if (breaker != null && !(e instanceof ITickQuotaException)) {
                     breaker.recordFailure();
                 }
                 log.warn("[行情] 数据源 {} snapshot 失败: {}", provider.name(), e.getMessage());
             }
         }
         if (merged.isEmpty()) {
+            if (lastError instanceof ITickQuotaException quota) throw quota;
             throw new UpstreamException("quote snapshot all providers failed");
         }
         return merged;
     }
 
     public TrendData getTrend(UpstreamTarget target) {
-        return route("trend", target.market().name(), QuoteProvider::supportsTrend,
+        return route("trend", target.market().name(), p -> p.supportsTrend() && allowed(p, target),
                 provider -> provider.getTrend(target));
     }
 
     public List<KlineBar> getKline(UpstreamTarget target, int fetchCount) {
-        return route("kline", target.market().name(), QuoteProvider::supportsKline,
+        return route("kline", target.market().name(), p -> p.supportsKline() && allowed(p, target),
                 provider -> provider.getKline(target, fetchCount));
     }
 
@@ -110,7 +115,7 @@ public class QuoteProviderRouter {
                 return result;
             } catch (Exception e) {
                 lastError = e;
-                if (breaker != null && !(e instanceof UpstreamSymbolUnavailableException)) {
+                if (breaker != null && !(e instanceof UpstreamSymbolUnavailableException) && !(e instanceof ITickQuotaException)) {
                     breaker.recordFailure();
                 }
                 log.warn("[行情] 数据源 {} {} 失败: {}", provider.name(), scene, e.getMessage());
@@ -119,6 +124,7 @@ public class QuoteProviderRouter {
         if (lastError instanceof UpstreamSymbolUnavailableException unavailable) {
             throw unavailable;
         }
+        if (lastError instanceof ITickQuotaException quota) throw quota;
         throw new UpstreamException("quote " + scene + " all providers failed", lastError);
     }
 
@@ -126,5 +132,13 @@ public class QuoteProviderRouter {
         return breakers.computeIfAbsent(key, k -> new UpstreamBreaker(
                 properties.getProvider().getBreakerFailThreshold(),
                 properties.getProvider().getBreakerOpenSeconds() * 1000L));
+    }
+
+    private boolean allowed(QuoteProvider provider, UpstreamTarget target) {
+        if (target.secType() != com.financial.news.service.quote.QuoteSecType.STOCK || target.symbol().endsWith(".BJ"))
+            return !ITickQuoteProvider.NAME.equals(provider.name());
+        return !ITickQuoteProvider.NAME.equals(properties.getProvider().getPrimary())
+                || properties.getProvider().isItickFallbackEnabled()
+                || ITickQuoteProvider.NAME.equals(provider.name());
     }
 }

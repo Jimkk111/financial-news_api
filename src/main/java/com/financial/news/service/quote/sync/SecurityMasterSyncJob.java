@@ -3,11 +3,14 @@ package com.financial.news.service.quote.sync;
 import com.financial.news.config.QuoteProperties;
 import com.financial.news.entity.QuoteSecurity;
 import com.financial.news.mapper.QuoteSecurityMapper;
+import com.financial.news.mapper.QuoteProviderSymbolMapper;
 import com.financial.news.service.quote.MarketEnum;
 import com.financial.news.service.quote.PinyinAbbrUtil;
 import com.financial.news.service.quote.QuoteSecType;
 import com.financial.news.service.quote.TradingSessionService;
-import com.financial.news.service.quote.provider.EastMoneyQuoteProvider;
+import com.financial.news.service.quote.provider.SecurityUniverseProvider;
+import com.financial.news.service.quote.provider.ITickQuoteProvider;
+import com.financial.news.service.quote.StockUniverseFilter;
 import com.financial.news.service.quote.provider.UpstreamException;
 import com.financial.news.service.quote.provider.model.UpstreamSecurity;
 import lombok.RequiredArgsConstructor;
@@ -42,13 +45,8 @@ public class SecurityMasterSyncJob {
     private final AtomicBoolean running = new AtomicBoolean();
     private final Map<MarketEnum, LocalDateTime> successfulSyncs = new ConcurrentHashMap<>();
 
-    /** fs 板块过滤：沪深北 A 股；港股；美股三大所 */
-    private static final Map<MarketEnum, String> FS_BY_MARKET = Map.of(
-            MarketEnum.CN, "m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23,m:0+t:81+s:2048",
-            MarketEnum.HK, "m:116+t:3",
-            MarketEnum.US, "m:105,m:106,m:107");
-
-    private final EastMoneyQuoteProvider eastMoneyProvider;
+    private final List<SecurityUniverseProvider> universeProviders;
+    private final QuoteProviderSymbolMapper providerSymbolMapper;
     private final QuoteSecurityMapper securityMapper;
     private final QuoteProperties properties;
 
@@ -111,7 +109,14 @@ public class SecurityMasterSyncJob {
                 log.info("[行情] 已隐藏历史港股结构性产品：{} 条", excluded);
             }
         }
-        List<UpstreamSecurity> rows = eastMoneyProvider.listAllSecurities(FS_BY_MARKET.get(market));
+        String configured = properties.getSync().getSecurityProvider();
+        String source = "auto".equals(configured) ? properties.getProvider().getPrimary() : configured;
+        if ("sina".equals(source)) source = "eastmoney";
+        String providerName = source;
+        SecurityUniverseProvider provider = universeProviders.stream().filter(p -> p.name().equals(providerName))
+                .findFirst().orElseThrow(() -> new UpstreamException("未知证券目录数据源: " + providerName));
+        boolean itick = ITickQuoteProvider.NAME.equals(providerName);
+        List<UpstreamSecurity> rows = provider.listSecurities(market);
         if (rows.isEmpty()) {
             throw new UpstreamException("证券列表为空");
         }
@@ -153,15 +158,25 @@ public class SecurityMasterSyncJob {
                     .missingDays(0)
                     .lastActiveDate(today)
                     .build());
+            if (itick) {
+                providerSymbolMapper.upsert(new QuoteProviderSymbolMapper.Mapping(symbol,
+                        row.sourceRegion(), row.sourceCode(), row.sourceExchange()));
+            }
         }
         int delistedNow = 0;
-        if (market == MarketEnum.HK) {
+        if (market == MarketEnum.HK && !itick) {
             int excluded = securityMapper.excludeMissingStocks(market.name(), List.copyOf(seen));
             log.info("[行情] 港股非正股历史记录已隐藏：{} 条", excluded);
         }
         // 备用目录与主源覆盖范围不同，只补充/更新，不据此判定旧标的退市。
-        boolean officialDirectory = rows.stream().anyMatch(row -> row.marketNum() == -1);
+        boolean officialDirectory = itick || rows.stream().anyMatch(row -> row.marketNum() == -1);
         for (QuoteSecurity active : securityMapper.selectActiveStocksByMarket(market.name())) {
+            if (itick && market == MarketEnum.US && !StockUniverseFilter.isItickStock("US",
+                    active.getSymbol().substring(0, active.getSymbol().lastIndexOf('.')),
+                    StockUniverseFilter.cleanName(active.getName()), "stock")) {
+                securityMapper.excludeStock(active.getSymbol());
+                continue;
+            }
             if (officialDirectory || seen.contains(active.getSymbol())) {
                 continue;
             }

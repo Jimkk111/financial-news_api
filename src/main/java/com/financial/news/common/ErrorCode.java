@@ -67,6 +67,7 @@ public enum ErrorCode {
     QUOTE_NOT_FOUND(404, "QUOTE_NOT_FOUND", "行情标的不存在"),
     QUOTE_CHART_UNAVAILABLE(404, "QUOTE_CHART_UNAVAILABLE", "该标的暂无可用图表数据"),
     QUOTE_UPSTREAM_FAILED(502, "QUOTE_UPSTREAM_FAILED", "行情数据源暂时不可用，请稍后重试"),
+    QUOTE_UPSTREAM_RATE_LIMITED(429, "QUOTE_UPSTREAM_RATE_LIMITED", "行情数据源请求额度已用完，请稍后重试"),
 
     // ========== 新闻相关 ==========
     NEWS_NOT_FOUND(404, "NEWS_NOT_FOUND", "新闻不存在");

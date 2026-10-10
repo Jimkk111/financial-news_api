@@ -36,6 +36,7 @@ public class QuoteSchemaInitializer implements ApplicationRunner {
         populator.setSqlScriptEncoding("UTF-8");
         populator.setContinueOnError(false);
         populator.addScript(new ClassPathResource(MIGRATION));
+        populator.addScript(new ClassPathResource("db/migration/v800-itick.sql"));
         DatabasePopulatorUtils.execute(populator, dataSource);
         log.info("行情数据库结构已就绪: {}", MIGRATION);
     }

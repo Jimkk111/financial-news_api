@@ -6,7 +6,7 @@ import lombok.EqualsAndHashCode;
 import java.util.List;
 
 /**
- * 日 K VO（固定前复权）
+ * 日 K VO（复权口径随实际数据源返回）
  *
  * @author financial-news
  * @since 1.0.0
@@ -15,7 +15,7 @@ import java.util.List;
 @EqualsAndHashCode(callSuper = true)
 public class QuoteKlineVO extends QuoteBaseVO {
 
-    /** 复权方式，首期固定 qfq */
+    /** qfq 前复权；none 原始价格。 */
     private String fq;
 
     private List<KlineBarVO> bars;

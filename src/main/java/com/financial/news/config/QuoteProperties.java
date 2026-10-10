@@ -27,7 +27,7 @@ public class QuoteProperties {
 
     @Data
     public static class Provider {
-        /** 主源：eastmoney | sina */
+        /** 主源：eastmoney | sina | itick */
         private String primary = "eastmoney";
         private int connectTimeoutMs = 2000;
         private int readTimeoutMs = 4000;
@@ -42,6 +42,13 @@ public class QuoteProperties {
         private String eastMoneyHisBaseUrl = "https://push2his.eastmoney.com";
         private String eastMoneySuggestBaseUrl = "https://searchapi.eastmoney.com";
         private String sinaBaseUrl = "https://hq.sinajs.cn";
+        private String itickBaseUrl = "https://api-free.itick.org";
+        @lombok.ToString.Exclude
+        private String itickToken = "";
+        private int itickRequestsPerMinute = 5;
+        private int itickBatchSize = 3;
+        /** iTick 股票失败时是否尝试旧源；指数仍使用旧源。 */
+        private boolean itickFallbackEnabled = false;
     }
 
     @Data
@@ -65,6 +72,8 @@ public class QuoteProperties {
 
     @Data
     public static class Sync {
+        /** auto 跟随行情主源，或显式指定 eastmoney / itick。 */
+        private String securityProvider = "auto";
         private String calendarCron = "0 0 3 * * *";
         private String securityCron = "0 10 3 * * *";
         /** 日历至少前瞻天数 */

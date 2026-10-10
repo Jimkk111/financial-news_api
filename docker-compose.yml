@@ -75,6 +75,12 @@ services:
       # Spring Boot 环境变量注入
       SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-prod}
       SERVER_PORT: "3000"
+      QUOTE_PROVIDER: ${QUOTE_PROVIDER:-itick}
+      ITICK_BASE_URL: ${ITICK_BASE_URL:-https://api-free.itick.org}
+      ITICK_TOKEN: ${ITICK_TOKEN:-}
+      ITICK_REQUESTS_PER_MINUTE: "${ITICK_REQUESTS_PER_MINUTE:-5}"
+      ITICK_BATCH_SIZE: "${ITICK_BATCH_SIZE:-3}"
+      QUOTE_SECURITY_PROVIDER: ${QUOTE_SECURITY_PROVIDER:-auto}
       # 数据库
       DB_URL: jdbc:mysql://mysql:3306/${MYSQL_DATABASE:-cls_financial_news_database}?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
       DB_USERNAME: ${DB_USERNAME:-${MYSQL_USER:-financial}}

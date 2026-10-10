@@ -37,6 +37,9 @@ public interface QuoteSecurityMapper {
     /** 根据港股代码区间和结构性产品命名规则清理已误收录记录。 */
     int excludeLegacyHkStructuredProducts();
 
+    @org.apache.ibatis.annotations.Update("UPDATE quote_security SET status=3 WHERE symbol=#{symbol} AND sec_type=1")
+    int excludeStock(@Param("symbol") String symbol);
+
     /** 搜索：代码前缀（symbol 前缀，如 600519、600519.SH、AAPL） */
     List<QuoteSecurity> searchBySymbolPrefix(@Param("prefix") String prefix, @Param("limit") int limit);
 

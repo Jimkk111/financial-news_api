@@ -280,7 +280,7 @@ public class QuoteService {
         LocalDate dataDate = window.isEmpty() ? LocalDate.now(TradingSessionService.ZONE)
                 : window.get(window.size() - 1).getDate();
         fillHead(vo, security, type, market, null, cached.fetchedAtEpochSec(), properties.getCache().getKlineFreshSeconds(), dataDate);
-        vo.setFq("qfq");
+        vo.setFq(bars.isEmpty() || bars.get(0).getFq() == null ? "qfq" : bars.get(0).getFq());
         // MA 与涨跌幅在全量历史上计算后按窗口对齐截取，保证输出首根的均线/涨跌幅可用
         List<KlineBarVO> allBars = toBarVos(bars);
         KlineMaVO allMa = new KlineMaVO(ma(bars, 5), ma(bars, 10), ma(bars, 20), ma(bars, 60));

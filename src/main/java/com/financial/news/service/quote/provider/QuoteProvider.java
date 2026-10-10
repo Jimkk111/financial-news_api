@@ -34,7 +34,7 @@ public interface QuoteProvider {
     TrendData getTrend(UpstreamTarget target);
 
     /**
-     * 日 K（前复权），按日期升序返回最近 fetchCount 根。
+     * 日 K，按日期升序返回最近 fetchCount 根；KlineBar.fq 表示实际价格口径。
      * fetchCount 应大于展示数量（服务层预留均线窗口）。失败抛 UpstreamException。
      */
     List<KlineBar> getKline(UpstreamTarget target, int fetchCount);

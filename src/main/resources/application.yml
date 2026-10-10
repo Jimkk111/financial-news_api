@@ -2,6 +2,8 @@ server:
   port: ${SERVER_PORT:3000}
 
 spring:
+  config:
+    import: optional:file:./itick-local.properties
   application:
     name: financial-news-api
 
@@ -175,7 +177,12 @@ upload:
 # 行情模块配置（公开只读接口：/api/quotes/**，SecurityConfig 白名单放行；默认值开箱即用，生产由 application-prod.yml 覆盖）
 quote:
   provider:
-    primary: eastmoney            # 主源：eastmoney | sina
+    primary: ${QUOTE_PROVIDER:itick} # 主源：itick | eastmoney | sina
+    itick-base-url: ${ITICK_BASE_URL:https://api-free.itick.org}
+    itick-token: ${ITICK_TOKEN:}
+    itick-requests-per-minute: ${ITICK_REQUESTS_PER_MINUTE:5}
+    itick-batch-size: ${ITICK_BATCH_SIZE:3}
+    itick-fallback-enabled: false
     connect-timeout-ms: 2000
     read-timeout-ms: 4000
     security-list-read-timeout-ms: 15000 # 全量名单独立超时
@@ -183,16 +190,17 @@ quote:
     breaker-fail-threshold: 5
     breaker-open-seconds: 30
   cache:
-    snapshot-fresh-seconds: 15    # 盘中快照新鲜窗口
-    trend-fresh-seconds: 60       # 盘中分时新鲜窗口
+    snapshot-fresh-seconds: 120   # 免费源减少重复请求；延迟仍按数据时间判定
+    trend-fresh-seconds: 120      # 免费源分钟线新鲜窗口
     kline-fresh-seconds: 300      # 盘中 K 线新鲜窗口
-    list-fresh-seconds: 15        # 指数卡/热门列表新鲜窗口
-    warmup-enabled: true          # 交易时段预热指数卡+热门缓存
+    list-fresh-seconds: 120       # 指数卡/热门列表新鲜窗口
+    warmup-enabled: false        # 免费套餐按需取数，避免后台预热消耗额度
   rate-limit:
     enabled: true
     window-seconds: 60
     max-requests: 60              # 每 IP 每窗口次数
   sync:
+    security-provider: ${QUOTE_SECURITY_PROVIDER:auto}
     calendar-cron: "0 0 3 * * *"      # 交易日历生成/校准
     security-cron: "0 10 3 * * *"     # 标的主表全量同步
     security-retry-ms: 300000          # 当日未完成同步的市场每5分钟重试

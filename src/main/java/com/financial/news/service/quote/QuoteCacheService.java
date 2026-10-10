@@ -31,6 +31,7 @@ public class QuoteCacheService {
 
     private final StringRedisTemplate redisTemplate;
     private final ObjectMapper objectMapper;
+    private final com.financial.news.config.QuoteProperties properties;
 
     /** 上游取数专用线程池（有界，快速失败，不占用 Tomcat 工作线程长等待） */
     private final ExecutorService upstreamExecutor = Executors.newFixedThreadPool(8, r -> {
@@ -57,6 +58,7 @@ public class QuoteCacheService {
                                          Duration freshTtl, Duration staleTtl, Duration storeTtl,
                                          Supplier<T> loader) {
         long nowSec = Instant.now().getEpochSecond();
+        key = "quote:source:" + properties.getProvider().getPrimary() + ":" + key;
         Envelope cached = readEnvelope(key);
         if (cached != null && nowSec - cached.fetchedAt < freshTtl.toSeconds()) {
             return decode(cached, type);

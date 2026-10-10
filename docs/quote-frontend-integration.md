@@ -192,18 +192,18 @@ Tab 页每个市场的指数卡（数据源：后端配置的固定指数清单�
 - 港股午休（E2）：`tradeStatus=LUNCH_BREAK`，points 保留上午段（minute 到 ~150），下午开盘后继续追加。
 - 退市标的 trend 返回空 points——**图区展示"已退市，仅可查看历史 K 线"说明**，默认切到 K 线页签（E4）。
 
-### 3.6 日 K（前复权，固定）
+### 3.6 日 K
 
 `GET /quotes/{type}/{symbol}/kline?count=250`
 
 - `count` 20–500，缺省 250（约一年）。**约定：一次拉 250 根，前端首屏展示最近约 120 根，缩放/拖动在本地数据上做（dataZoom），不翻页请求**（U3）。
-- 复权固定前复权（`fq` 恒为 `"qfq"`，本期无切换，PRD 明确不做）。
+- `fq` 表示实际价格口径：东方财富为 `qfq`（前复权）；iTick 为 `none`（原始价格，未额外计算前复权）。前端按字段展示，不能固定标注前复权。
 
 响应 `QuoteKlineVO`：
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| `fq` | string | 固定 `"qfq"` |
+| `fq` | string | `"qfq"` 或 `"none"` |
 | `bars` | KlineBarVO[] | 按日期升序 |
 | `ma` | `{ ma5, ma10, ma20, ma60 }` | 均线数组，**与 bars 下标一一对齐** |
 
@@ -303,7 +303,7 @@ export interface KlineBarVO {
   changePercent: number | null
 }
 export interface QuoteKlineVO extends QuoteBaseVO {
-  fq: 'qfq'
+  fq: 'qfq' | 'none'
   bars: KlineBarVO[]
   ma: { ma5: (number | null)[]; ma10: (number | null)[]; ma20: (number | null)[]; ma60: (number | null)[] }
 }

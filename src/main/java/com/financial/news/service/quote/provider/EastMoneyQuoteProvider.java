@@ -49,7 +49,7 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 @Slf4j
 @Component
-public class EastMoneyQuoteProvider implements QuoteProvider {
+public class EastMoneyQuoteProvider implements QuoteProvider, SecurityUniverseProvider {
 
     public static final String NAME = "eastmoney";
 
@@ -84,6 +84,15 @@ public class EastMoneyQuoteProvider implements QuoteProvider {
     @Override
     public String name() {
         return NAME;
+    }
+
+    @Override
+    public List<UpstreamSecurity> listSecurities(com.financial.news.service.quote.MarketEnum market) {
+        return listAllSecurities(switch (market) {
+            case CN -> "m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23,m:0+t:81+s:2048";
+            case HK -> "m:116+t:3";
+            case US -> "m:105,m:106,m:107";
+        });
     }
 
     @Override

@@ -16,6 +16,7 @@ logs/
 # Docker compose & config
 docker-compose*.yml
 .env*
+itick-local.properties
 !.env.example
 !*.env.docker
 

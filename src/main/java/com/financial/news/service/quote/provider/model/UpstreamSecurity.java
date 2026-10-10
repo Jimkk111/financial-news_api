@@ -10,7 +10,11 @@ package com.financial.news.service.quote.provider.model;
  * @author financial-news
  * @since 1.0.0
  */
-public record UpstreamSecurity(String code, int marketNum, String name, boolean stock) {
+public record UpstreamSecurity(String code, int marketNum, String name, boolean stock,
+                               String sourceRegion, String sourceCode, String sourceExchange) {
+    public UpstreamSecurity(String code, int marketNum, String name, boolean stock) {
+        this(code, marketNum, name, stock, null, null, null);
+    }
     public UpstreamSecurity(String code, int marketNum, String name) {
         this(code, marketNum, name, true);
     }
