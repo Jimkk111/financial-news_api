@@ -143,9 +143,9 @@ public class GlobalExceptionHandler {
     /**
      * 处理行情上游数据源失败（主备源均不可用且无 stale 缓存）
      */
-    @ExceptionHandler(com.financial.news.service.quote.provider.ITickQuotaException.class)
-    public ResponseEntity<Result<Void>> handleQuoteQuota(com.financial.news.service.quote.provider.ITickQuotaException ex) {
-        return ResponseEntity.status(429).header("Retry-After", "60")
+    @ExceptionHandler(com.financial.news.service.quote.provider.UpstreamQuotaException.class)
+    public ResponseEntity<Result<Void>> handleQuoteQuota(com.financial.news.service.quote.provider.UpstreamQuotaException ex) {
+        return ResponseEntity.status(429).header("Retry-After", Integer.toString(ex.getRetryAfterSeconds()))
                 .body(Result.fail(ErrorCode.QUOTE_UPSTREAM_RATE_LIMITED));
     }
 

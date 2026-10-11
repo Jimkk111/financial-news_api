@@ -2,7 +2,8 @@
 
 ## 配置与启动
 
-主源默认 `itick`，免费入口 `https://api-free.itick.org`。Token 从 `ITICK_TOKEN`
+当前主源默认 `longport`，见 [长桥接入说明](quote-longport-integration.md)。iTick 继续用于股票目录。
+切换回 iTick 行情时设置 `QUOTE_PROVIDER=itick`，免费入口 `https://api-free.itick.org`。Token 从 `ITICK_TOKEN`
 读取，或放入根目录 `itick-local.properties`（已忽略，不提交）。Spring Boot
 会自动导入该本地文件；IDEA 的工作目录需为项目根目录。示例：
 
@@ -62,7 +63,8 @@ Redis 缓存按主源隔离，切换时不会复用旧主源缓存。
 
 默认每个应用进程最多 5 次请求/滚动 60 秒，配额不足快速返回，不阻塞页面。
 单应用进程内所有目录、报价、图表共用配额；多实例部署或其他程序共享 Token 时需统一限流。
-快照和列表缓存 120 秒、分钟线 120 秒、日 K 300 秒；默认关闭后台报价预热。
+使用 iTick 免费行情时，建议设置 `QUOTE_SNAPSHOT_FRESH_SECONDS=120`、
+`QUOTE_LIST_FRESH_SECONDS=120`、`QUOTE_TREND_FRESH_SECONDS=120`；日 K 300 秒，默认关闭后台报价预热。
 缓存失败时仍可使用原有 stale 降级，列表无报价时保留名称和代码，标记 delayed。
 后续刷新优先补齐未取到报价的标的，避免有限额度始终只更新页面前几行。
 

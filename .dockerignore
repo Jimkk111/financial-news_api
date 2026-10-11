@@ -17,6 +17,7 @@ logs/
 docker-compose*.yml
 .env*
 itick-local.properties
+longport-local.properties
 !.env.example
 !*.env.docker
 

@@ -70,14 +70,14 @@ public class QuoteProviderRouter {
                         .toList();
             } catch (Exception e) {
                 lastError = e;
-                if (breaker != null && !(e instanceof ITickQuotaException)) {
+                if (breaker != null && !(e instanceof UpstreamQuotaException) && !(e instanceof UpstreamSymbolUnavailableException)) {
                     breaker.recordFailure();
                 }
                 log.warn("[行情] 数据源 {} snapshot 失败: {}", provider.name(), e.getMessage());
             }
         }
         if (merged.isEmpty()) {
-            if (lastError instanceof ITickQuotaException quota) throw quota;
+            if (lastError instanceof UpstreamQuotaException quota) throw quota;
             throw new UpstreamException("quote snapshot all providers failed");
         }
         return merged;
@@ -115,7 +115,7 @@ public class QuoteProviderRouter {
                 return result;
             } catch (Exception e) {
                 lastError = e;
-                if (breaker != null && !(e instanceof UpstreamSymbolUnavailableException) && !(e instanceof ITickQuotaException)) {
+                if (breaker != null && !(e instanceof UpstreamSymbolUnavailableException) && !(e instanceof UpstreamQuotaException)) {
                     breaker.recordFailure();
                 }
                 log.warn("[行情] 数据源 {} {} 失败: {}", provider.name(), scene, e.getMessage());
@@ -124,7 +124,7 @@ public class QuoteProviderRouter {
         if (lastError instanceof UpstreamSymbolUnavailableException unavailable) {
             throw unavailable;
         }
-        if (lastError instanceof ITickQuotaException quota) throw quota;
+        if (lastError instanceof UpstreamQuotaException quota) throw quota;
         throw new UpstreamException("quote " + scene + " all providers failed", lastError);
     }
 
@@ -135,6 +135,11 @@ public class QuoteProviderRouter {
     }
 
     private boolean allowed(QuoteProvider provider, UpstreamTarget target) {
+        boolean longport = LongPortQuoteProvider.NAME.equals(provider.name());
+        boolean longportTarget = LongPortQuoteProvider.supportsTarget(target);
+        if (longport && !longportTarget) return false;
+        if (LongPortQuoteProvider.NAME.equals(properties.getProvider().getPrimary()) && longportTarget
+                && !properties.getProvider().isLongportFallbackEnabled()) return longport;
         if (target.secType() != com.financial.news.service.quote.QuoteSecType.STOCK || target.symbol().endsWith(".BJ"))
             return !ITickQuoteProvider.NAME.equals(provider.name());
         return !ITickQuoteProvider.NAME.equals(properties.getProvider().getPrimary())

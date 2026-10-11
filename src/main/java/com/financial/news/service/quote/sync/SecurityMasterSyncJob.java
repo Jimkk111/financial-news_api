@@ -112,6 +112,8 @@ public class SecurityMasterSyncJob {
         String configured = properties.getSync().getSecurityProvider();
         String source = "auto".equals(configured) ? properties.getProvider().getPrimary() : configured;
         if ("sina".equals(source)) source = "eastmoney";
+        // 长桥 securityList 仅为美股夜盘名单，不能覆盖完整股票目录。
+        if ("longport".equals(source)) source = ITickQuoteProvider.NAME;
         String providerName = source;
         SecurityUniverseProvider provider = universeProviders.stream().filter(p -> p.name().equals(providerName))
                 .findFirst().orElseThrow(() -> new UpstreamException("未知证券目录数据源: " + providerName));

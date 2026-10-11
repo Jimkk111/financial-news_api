@@ -3,7 +3,7 @@ server:
 
 spring:
   config:
-    import: optional:file:./itick-local.properties
+    import: optional:file:./itick-local.properties,optional:file:./longport-local.properties
   application:
     name: financial-news-api
 
@@ -174,10 +174,16 @@ upload:
     dir: media                                 # 对象 Key 前缀
     custom-domain: ${OSS_CUSTOM_DOMAIN:}       # 可选自定义/CDN 域名，如 https://cdn.example.com；为空则用 bucket 外网域名
 
-# 行情模块配置（公开只读接口：/api/quotes/**，SecurityConfig 白名单放行；默认值开箱即用，生产由 application-prod.yml 覆盖）
+# 行情模块配置（公开只读接口：/api/quotes/**；长桥需要配置凭证，生产通过环境变量注入）
 quote:
   provider:
-    primary: ${QUOTE_PROVIDER:itick} # 主源：itick | eastmoney | sina
+    primary: ${QUOTE_PROVIDER:longport} # 主源：longport | itick | eastmoney | sina
+    longport-app-key: ${LONGPORT_APP_KEY:}
+    longport-app-secret: ${LONGPORT_APP_SECRET:}
+    longport-access-token: ${LONGPORT_ACCESS_TOKEN:}
+    longport-region: ${LONGPORT_REGION:cn}
+    longport-timeout-ms: ${LONGPORT_TIMEOUT_MS:10000}
+    longport-fallback-enabled: ${LONGPORT_FALLBACK_ENABLED:false}
     itick-base-url: ${ITICK_BASE_URL:https://api-free.itick.org}
     itick-token: ${ITICK_TOKEN:}
     itick-requests-per-minute: ${ITICK_REQUESTS_PER_MINUTE:5}
@@ -190,10 +196,10 @@ quote:
     breaker-fail-threshold: 5
     breaker-open-seconds: 30
   cache:
-    snapshot-fresh-seconds: 120   # 免费源减少重复请求；延迟仍按数据时间判定
-    trend-fresh-seconds: 120      # 免费源分钟线新鲜窗口
+    snapshot-fresh-seconds: ${QUOTE_SNAPSHOT_FRESH_SECONDS:15}
+    trend-fresh-seconds: ${QUOTE_TREND_FRESH_SECONDS:60}
     kline-fresh-seconds: 300      # 盘中 K 线新鲜窗口
-    list-fresh-seconds: 120       # 指数卡/热门列表新鲜窗口
+    list-fresh-seconds: ${QUOTE_LIST_FRESH_SECONDS:15}
     warmup-enabled: false        # 免费套餐按需取数，避免后台预热消耗额度
   rate-limit:
     enabled: true

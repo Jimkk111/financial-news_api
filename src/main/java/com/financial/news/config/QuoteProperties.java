@@ -27,7 +27,7 @@ public class QuoteProperties {
 
     @Data
     public static class Provider {
-        /** 主源：eastmoney | sina | itick */
+        /** 主源：eastmoney | sina | itick | longport */
         private String primary = "eastmoney";
         private int connectTimeoutMs = 2000;
         private int readTimeoutMs = 4000;
@@ -49,6 +49,17 @@ public class QuoteProperties {
         private int itickBatchSize = 3;
         /** iTick 股票失败时是否尝试旧源；指数仍使用旧源。 */
         private boolean itickFallbackEnabled = false;
+        @lombok.ToString.Exclude
+        private String longportAppKey = "";
+        @lombok.ToString.Exclude
+        private String longportAppSecret = "";
+        @lombok.ToString.Exclude
+        private String longportAccessToken = "";
+        /** cn 使用大陆接入点；hk 使用国际接入点。 */
+        private String longportRegion = "cn";
+        private int longportTimeoutMs = 10000;
+        /** 显式开启后才允许支持的股票/指数回退旧源。 */
+        private boolean longportFallbackEnabled = false;
     }
 
     @Data
@@ -72,7 +83,7 @@ public class QuoteProperties {
 
     @Data
     public static class Sync {
-        /** auto 跟随行情主源，或显式指定 eastmoney / itick。 */
+        /** auto 跟随行情主源；longport 使用 itick 完整证券目录。 */
         private String securityProvider = "auto";
         private String calendarCron = "0 0 3 * * *";
         private String securityCron = "0 10 3 * * *";

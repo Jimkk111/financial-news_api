@@ -83,6 +83,7 @@ data/
 !.env.docker
 application-local.yml
 itick-local.properties
+longport-local.properties
 application-dev.yml
 # application-prod.yml   ← 已纳入版本管理
 application-*.yml.bak
