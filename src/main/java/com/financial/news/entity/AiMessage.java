@@ -40,6 +40,7 @@ public class AiMessage {
     private String generationId;
     private String status;
     private Long lastSeq;
+    private String retryOf;
 
     private LocalDateTime createdAt;
 }

@@ -5,8 +5,11 @@
     <!-- 批量查询每个会话的最后一条消息（窗口函数，消除 listSessions 的 N+1 查询） -->
     <select id="selectLastMessages" resultType="com.financial.news.entity.AiMessage">
         SELECT t.* FROM (
-            SELECT m.*, ROW_NUMBER() OVER (PARTITION BY m.session_id ORDER BY m.created_at DESC) AS rn
-            FROM ai_messages m WHERE m.session_id IN
+            SELECT m.*, ROW_NUMBER() OVER (PARTITION BY m.session_id ORDER BY m.created_at DESC, m.id DESC) AS rn
+            FROM ai_messages m
+            LEFT JOIN ai_generation_tasks g ON g.message_id = m.id
+            LEFT JOIN ai_generation_retries r ON r.source_generation_id = g.id
+            WHERE r.source_generation_id IS NULL AND m.session_id IN
             <foreach collection="sessionIds" item="id" open="(" separator="," close=")">#{id}</foreach>
         ) t WHERE t.rn = 1
     </select>
@@ -21,6 +24,7 @@
         <result column="generation_id" property="generationId"/>
         <result column="generation_status" property="status"/>
         <result column="last_seq" property="lastSeq"/>
+        <result column="retry_of" property="retryOf"/>
         <result column="created_at" property="createdAt"/>
     </resultMap>
 
@@ -30,10 +34,12 @@
     </insert>
 
     <select id="selectBySessionId" resultMap="BaseResultMap">
-        SELECT m.*, g.id AS generation_id, g.status AS generation_status, g.last_seq
+        SELECT m.*, g.id AS generation_id, g.status AS generation_status, g.last_seq, parent.source_generation_id AS retry_of
         FROM ai_messages m
         LEFT JOIN ai_generation_tasks g ON g.message_id = m.id
-        WHERE m.session_id = #{sessionId}
+        LEFT JOIN ai_generation_retries r ON r.source_generation_id = g.id
+        LEFT JOIN ai_generation_retries parent ON parent.generation_id = g.id
+        WHERE m.session_id = #{sessionId} AND r.source_generation_id IS NULL
         ORDER BY m.created_at ASC, m.id ASC
     </select>
 

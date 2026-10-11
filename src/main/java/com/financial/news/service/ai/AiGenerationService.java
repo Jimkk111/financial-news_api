@@ -86,6 +86,7 @@ public class AiGenerationService {
     public Task create(int userId, AiChatRequest request, String key) {
         return store.create(userId, request, key);
     }
+    public Task retry(int userId, String sourceId, String key) { return store.retry(sourceId, userId, key); }
     public AiGenerationStore.Snapshot snapshot(int userId, String id) { return store.snapshot(id, userId); }
 
     public AiGenerationStore.Snapshot cancel(int userId, String id) {

@@ -24,6 +24,7 @@ public class AiGenerationSchemaInitializer implements ApplicationRunner {
         ResourceDatabasePopulator populator = new ResourceDatabasePopulator();
         populator.setSqlScriptEncoding("UTF-8");
         populator.addScript(new ClassPathResource("db/migration/v900-ai-generations.sql"));
+        populator.addScript(new ClassPathResource("db/migration/v901-ai-generation-retries.sql"));
         DatabasePopulatorUtils.execute(populator, dataSource);
     }
 }

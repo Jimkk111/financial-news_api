@@ -90,7 +90,7 @@ docker compose down -v   # 会删除数据卷，谨慎执行
 
 - 认证：`POST /api/auth/login|register|logout|send-code|reset-password`（`controller/AuthController.java:20-64`）。登录/注册将 JWT 写入 Cookie；登出清除 Cookie。
 - 新闻：`GET /api/news`、`/{id}`、`/{id}/views`、`/categories`、`/tags`、`/search`（`controller/NewsController.java:19-69`）。
-- AI：会话/消息 CRUD、`POST /api/ai/chat`、`POST /api/ai/chat/stream`；新增 `POST /api/ai/generations`、`GET /{id}`、`GET /{id}/events`、`POST /{id}/cancel`（`controller/AiGenerationController.java`）。
+- AI：会话/消息 CRUD、`POST /api/ai/chat`、`POST /api/ai/chat/stream`；新增 `POST /api/ai/generations`、`GET /{id}`、`GET /{id}/events`、`POST /{id}/cancel`、`POST /{id}/retry`（`controller/AiGenerationController.java`）。
 - 爬虫：`POST /api/crawler/crawl`、`POST /api/crawler/crawl/stream`，请求 `instruction` 必填 2–500 字符，`sessionId` 可选（`controller/CrawlerController.java:24-63`、`dto/request/CrawlerRequest.java:13-25`）。
 - 媒体：`POST /api/media/image`（≤10MB，jpeg/png/gif/webp）、`POST /api/media/video`（≤200MB，mp4/mov、webm/mkv），multipart 字段 `file`，存储到阿里云 OSS（`service/MediaService.java`），返回 `{url}`；未配置 OSS 时返回 503 `MEDIA_NOT_CONFIGURED`。
 - 其他：草稿、收藏、浏览历史、用户资料；系统健康检查 `GET /health` 和 `GET /api`。
@@ -131,7 +131,8 @@ Planner -> Scraper -> Processor -> Writer
 - 正文/思考链/来源按上游增量持久化。取消与增量写入锁定同一任务行；停止、失败保留部分输出，过期 Worker 写入被拒绝。
 - 原 POST stream 保留 data JSON 与 `[DONE]`，新增 generationId/messageId/seq/status；前端停止必须调用 cancel，不能只 abort 接收流。
 - 同一会话未结束任务禁止重叠生成和会话删除；非流式 chat 保持原实现。
-- `AiGenerationSchemaInitializer` 启动时幂等执行 `db/migration/v900-ai-generations.sql`；新增 tasks/events 表，历史消息关联任务元数据。
+- `AiGenerationSchemaInitializer` 启动时幂等执行 `db/migration/v900-ai-generations.sql` 与 `v901-ai-generation-retries.sql`；新增 tasks/events/retries 表，历史消息关联任务元数据。
+- 专用 retry 接口只重试最后一轮终态回复，复制保存的模型上下文，不新增用户消息；旧助手回复保留在原任务快照中，历史与会话摘要只展示最新尝试。重试响应的 retryOf 用于前端替换原助手气泡，不追加用户提问。
 - 当前 Chat Completions 上游无法续接原请求，Worker 故障后标记 failed 并保留内容，不从头生成后拼接。
 - 新源码入口：`controller/AiGenerationController.java`、`service/ai/{AiGenerationStore,AiGenerationService,OpenAiCompatibleClient}.java`；接入契约见 `docs/ai-generation-lifecycle.md`。
 

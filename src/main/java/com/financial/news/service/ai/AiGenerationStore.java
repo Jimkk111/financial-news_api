@@ -39,7 +39,8 @@ public class AiGenerationStore {
     }
     public record Event(long seq, String type, String payload) {}
     public record Snapshot(String generationId, String sessionId, int messageId, String status,
-                           String content, String reasoning, Object sources, long lastSeq, String errorCode) {}
+                           String content, String reasoning, Object sources, long lastSeq, String errorCode,
+                           String retryOf, String supersededBy) {}
 
     private static final String SELECT_TASK = "SELECT *, lease_until > CURRENT_TIMESTAMP AS lease_valid FROM ai_generation_tasks";
     private static final RowMapper<Task> TASK_MAPPER = (rs, n) -> new Task(
@@ -49,9 +50,7 @@ public class AiGenerationStore {
             rs.getString("error_code"), rs.getBoolean("lease_valid"));
 
     public Task create(int userId, AiChatRequest request, String key) {
-        if (key == null || !key.matches("[A-Za-z0-9._:-]{1,128}")) {
-            throw new BusinessException(ErrorCode.BAD_REQUEST, "需要有效的 Idempotency-Key");
-        }
+        validateKey(key);
         String hash = hash(encode(Arrays.asList(request.getSessionId(), request.getMessages(), Boolean.TRUE.equals(request.getWebSearch()))));
         try {
             return transactions.execute(tx -> {
@@ -99,6 +98,59 @@ public class AiGenerationStore {
             if (e.getErrorCode() == ErrorCode.CONFLICT) {
                 Task existing = byKey(userId, key);
                 if (existing != null) return checkHash(existing, hash);
+            }
+            throw e;
+        }
+    }
+
+    private void validateKey(String key) {
+        if (key == null || !key.matches("[A-Za-z0-9._:-]{1,128}")) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "需要有效的 Idempotency-Key");
+        }
+    }
+
+    /** Retry a saved turn, without accepting new context or inserting another user message. */
+    public Task retry(String sourceId, int userId, String key) {
+        validateKey(key);
+        String requestHash = hash("retry:" + sourceId);
+        try {
+            return transactions.execute(tx -> {
+                Task existing = byKey(userId, key);
+                if (existing != null) return checkHash(existing, requestHash);
+                Task origin = owned(sourceId, userId);
+                lockSession(origin.sessionId());
+                origin = task(sourceId, true);
+                authorize(origin, userId);
+                if (!origin.terminal()) throw new BusinessException(ErrorCode.CONFLICT, "请先停止原任务并等待结束");
+                if (!jdbc.queryForList("SELECT generation_id FROM ai_generation_retries WHERE source_generation_id=? FOR UPDATE", String.class, sourceId).isEmpty()) {
+                    throw new BusinessException(ErrorCode.CONFLICT, "原任务已有重试，请使用最新任务");
+                }
+                assertNoActiveTask(origin.sessionId());
+                // Rewriting an earlier turn after later messages exist would invalidate their context.
+                if (!jdbc.queryForList("SELECT id FROM ai_messages WHERE session_id=? AND id>? LIMIT 1 FOR UPDATE",
+                        Integer.class, origin.sessionId(), origin.messageId()).isEmpty()) {
+                    throw new BusinessException(ErrorCode.CONFLICT, "只能重试会话最后一轮回复");
+                }
+                AiMessage assistant = AiMessage.builder().sessionId(origin.sessionId()).role("assistant").content("").build();
+                messages.insert(assistant);
+                String id = "g_" + UUID.randomUUID();
+                jdbc.update("""
+                        INSERT INTO ai_generation_tasks
+                        (id,user_id,session_id,public_session_id,message_id,idempotency_key,request_hash,params_json,web_search)
+                        VALUES (?,?,?,?,?,?,?,?,?)
+                        """, id, userId, origin.sessionId(), origin.publicSessionId(), assistant.getId(), key,
+                        requestHash, origin.paramsJson(), origin.webSearch());
+                jdbc.update("INSERT INTO ai_generation_retries(source_generation_id,generation_id) VALUES(?,?)", sourceId, id);
+                return task(id, false);
+            });
+        } catch (DuplicateKeyException e) {
+            Task existing = byKey(userId, key);
+            if (existing == null) throw e;
+            return checkHash(existing, requestHash);
+        } catch (BusinessException e) {
+            if (e.getErrorCode() == ErrorCode.CONFLICT) {
+                Task existing = byKey(userId, key);
+                if (existing != null) return checkHash(existing, requestHash);
             }
             throw e;
         }
@@ -241,9 +293,15 @@ public class AiGenerationStore {
         return transactions.execute(tx -> {
             Task task = task(id, true);
             authorize(task, userId);
-            return jdbc.queryForObject("SELECT content,reasoning_content,sources FROM ai_messages WHERE id=?", (rs,n) ->
+            return jdbc.queryForObject("""
+                    SELECT content,reasoning_content,sources,
+                    (SELECT source_generation_id FROM ai_generation_retries WHERE generation_id=?) AS retry_of,
+                    (SELECT generation_id FROM ai_generation_retries WHERE source_generation_id=?) AS superseded_by
+                    FROM ai_messages WHERE id=?
+                    """, (rs,n) ->
                     new Snapshot(task.id(), task.publicSessionId(), task.messageId(), task.status(), rs.getString("content"),
-                            rs.getString("reasoning_content"), rs.getString("sources") == null ? List.of() : decodeList(rs.getString("sources")), task.lastSeq(), task.errorCode()), task.messageId());
+                            rs.getString("reasoning_content"), rs.getString("sources") == null ? List.of() : decodeList(rs.getString("sources")),
+                            task.lastSeq(), task.errorCode(), rs.getString("retry_of"), rs.getString("superseded_by")), task.id(), task.id(), task.messageId());
         });
     }
     public List<Event> events(String id, long afterSeq) {

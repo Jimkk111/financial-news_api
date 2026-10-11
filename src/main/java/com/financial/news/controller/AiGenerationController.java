@@ -40,6 +40,14 @@ public class AiGenerationController {
     @Operation(summary = "读取一致的生成内容快照")
     public Result<Snapshot> snapshot(@PathVariable String id) { return Result.ok(generations.snapshot(userId(), id)); }
 
+    @PostMapping("/{id}/retry")
+    @Operation(summary = "重试最后一轮回复，复用原上下文，不新增用户消息")
+    public Result<Map<String, Object>> retry(@PathVariable String id, @RequestHeader("Idempotency-Key") String key) {
+        var task = generations.retry(userId(), id, key);
+        return Result.ok(Map.of("generationId", task.id(), "sessionId", task.publicSessionId(),
+                "messageId", task.messageId(), "status", task.status(), "lastSeq", task.lastSeq(), "retryOf", id));
+    }
+
     @PostMapping("/{id}/cancel")
     @Operation(summary = "主动停止生成，保留已保存内容")
     public Result<Snapshot> cancel(@PathVariable String id) { return Result.ok(generations.cancel(userId(), id)); }

@@ -31,6 +31,7 @@ class AiGenerationStoreMysqlTest {
     private String schema;
     private JdbcTemplate jdbc;
     private AiGenerationStore store;
+    private AiMessageMapper messageMapper;
 
     @BeforeEach void setup() throws Exception {
         String url = System.getenv("AI_GENERATION_TEST_JDBC_URL");
@@ -49,6 +50,7 @@ class AiGenerationStoreMysqlTest {
         ResourceDatabasePopulator migration = new ResourceDatabasePopulator();
         migration.setSqlScriptEncoding("UTF-8");
         migration.addScript(new ClassPathResource("db/migration/v900-ai-generations.sql"));
+        migration.addScript(new ClassPathResource("db/migration/v901-ai-generation-retries.sql"));
         DatabasePopulatorUtils.execute(migration, ds);
         DatabasePopulatorUtils.execute(migration, ds); // Startup migration must be idempotent.
         SqlSessionFactoryBean factory = new SqlSessionFactoryBean();
@@ -56,6 +58,7 @@ class AiGenerationStoreMysqlTest {
         factory.setPlugins(new AuditTimeFillInterceptor());
         factory.setMapperLocations(new ClassPathResource("mapper/AiMessageMapper.xml"), new ClassPathResource("mapper/AiSessionMapper.xml"));
         SqlSessionTemplate mybatis = new SqlSessionTemplate(factory.getObject());
+        messageMapper = mybatis.getMapper(AiMessageMapper.class);
         store = new AiGenerationStore(jdbc, new TransactionTemplate(new DataSourceTransactionManager(ds)),
                 mybatis.getMapper(AiSessionMapper.class), mybatis.getMapper(AiMessageMapper.class), new ObjectMapper());
     }
@@ -196,6 +199,108 @@ class AiGenerationStoreMysqlTest {
         store.recoverExpired();
         assertEquals("cancelled", store.snapshot(created.id(), 7).status());
         assertEquals("保留", store.snapshot(created.id(), 7).content());
+    }
+
+    @Test void retryReusesOriginalContextWithoutDuplicatingUserOrIncludingFailedOutput() {
+        var request = request(null, "最新问题");
+        AiChatRequest.ChatMessage earlierUser = new AiChatRequest.ChatMessage();
+        earlierUser.setRole("user"); earlierUser.setContent("历史问题");
+        AiChatRequest.ChatMessage earlierAssistant = new AiChatRequest.ChatMessage();
+        earlierAssistant.setRole("assistant"); earlierAssistant.setContent("历史答案");
+        request.setMessages(List.of(earlierUser, earlierAssistant, request.getMessages().getFirst()));
+        request.setWebSearch(true);
+        var source = store.create(7, request, "original");
+        var worker = store.claim();
+        store.append(worker, "content", "失败的部分回复");
+        store.finish(worker, "AI_UPSTREAM_FAILED");
+        var retry = store.retry(source.id(), 7, "retry-1");
+        assertEquals(source.paramsJson(), retry.paramsJson());
+        assertTrue(retry.webSearch());
+        assertFalse(retry.paramsJson().contains("失败的部分回复"));
+        assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM ai_messages WHERE role='user'", Integer.class));
+        assertEquals(retry.id(), store.snapshot(source.id(), 7).supersededBy());
+        assertEquals(source.id(), store.snapshot(retry.id(), 7).retryOf());
+        assertEquals("失败的部分回复", store.snapshot(source.id(), 7).content());
+        var history = messageMapper.selectBySessionId(source.sessionId());
+        assertEquals(List.of("user", "assistant"), history.stream().map(com.financial.news.entity.AiMessage::getRole).toList());
+        assertEquals(retry.id(), history.getLast().getGenerationId());
+        assertEquals(source.id(), history.getLast().getRetryOf());
+        assertEquals(retry.messageId(), messageMapper.selectLastMessages(List.of(source.sessionId())).getFirst().getId());
+    }
+
+    @Test void retryRequestIsIdempotentAndCannotReuseCreationKey() {
+        var source = store.create(7, request(null, "问题"), "original");
+        store.cancel(source.id(), 7);
+        var retry = store.retry(source.id(), 7, "retry-key");
+        assertEquals(retry.id(), store.retry(source.id(), 7, "retry-key").id());
+        assertEquals(3, jdbc.queryForObject("SELECT COUNT(*) FROM ai_messages", Integer.class));
+        assertThrows(BusinessException.class, () -> store.retry(source.id(), 7, "original"));
+        assertThrows(BusinessException.class, () -> store.retry(source.id(), 7, "another-retry"));
+    }
+
+    @Test void retriesCanFormAChainAndOnlyLatestReplyIsVisible() {
+        var source = store.create(7, request(null, "问题"), "original");
+        store.cancel(source.id(), 7);
+        var first = store.retry(source.id(), 7, "retry-1");
+        store.cancel(first.id(), 7);
+        var latest = store.retry(first.id(), 7, "retry-2");
+        assertEquals(source.paramsJson(), latest.paramsJson());
+        var history = messageMapper.selectBySessionId(source.sessionId());
+        assertEquals(2, history.size());
+        assertEquals(latest.id(), history.getLast().getGenerationId());
+        assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM ai_messages WHERE role='user'", Integer.class));
+        store.cancel(latest.id(), 7);
+        assertEquals(first.id(), store.retry(source.id(), 7, "retry-1").id());
+    }
+
+    @Test void cannotRetryAnActiveForeignOrEarlierTurn() {
+        var source = store.create(7, request(null, "问题"), "original");
+        assertThrows(BusinessException.class, () -> store.retry(source.id(), 99, "foreign"));
+        assertThrows(BusinessException.class, () -> store.retry(source.id(), 7, "active"));
+        store.cancel(source.id(), 7);
+        var later = store.create(7, request(source.publicSessionId(), "后续问题"), "later");
+        store.cancel(later.id(), 7);
+        assertThrows(BusinessException.class, () -> store.retry(source.id(), 7, "earlier"));
+        assertEquals(4, jdbc.queryForObject("SELECT COUNT(*) FROM ai_messages", Integer.class));
+    }
+
+    @Test void completedLastReplyCanBeRegeneratedWithoutAddingUserMessage() {
+        var source = store.create(7, request(null, "问题"), "original");
+        var worker = store.claim();
+        store.append(worker, "content", "原答案"); store.finish(worker, null);
+        var retry = store.retry(source.id(), 7, "regenerate");
+        var retryWorker = store.claim();
+        assertEquals(retry.id(), retryWorker.id());
+        store.append(retryWorker, "content", "新答案"); store.finish(retryWorker, null);
+        assertEquals(List.of("问题", "新答案"), messageMapper.selectBySessionId(source.sessionId()).stream()
+                .map(com.financial.news.entity.AiMessage::getContent).toList());
+        assertEquals("原答案", store.snapshot(source.id(), 7).content());
+    }
+
+    @Test void concurrentRetryCommitsOneReplacement() throws Exception {
+        var source = store.create(7, request(null, "问题"), "original");
+        store.cancel(source.id(), 7);
+        ExecutorService threads = Executors.newFixedThreadPool(2);
+        CountDownLatch start = new CountDownLatch(1);
+        try {
+            var a = threads.submit(() -> { start.await(); return store.retry(source.id(), 7, "same-retry"); });
+            var b = threads.submit(() -> { start.await(); return store.retry(source.id(), 7, "same-retry"); });
+            start.countDown();
+            assertEquals(a.get(5, TimeUnit.SECONDS).id(), b.get(5, TimeUnit.SECONDS).id());
+            assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM ai_generation_retries", Integer.class));
+            assertEquals(3, jdbc.queryForObject("SELECT COUNT(*) FROM ai_messages", Integer.class));
+        } finally { threads.shutdownNow(); }
+    }
+
+    @Test void failedRetryTransactionKeepsOriginalReplyVisible() {
+        var source = store.create(7, request(null, "问题"), "original");
+        store.cancel(source.id(), 7);
+        jdbc.execute("CREATE TRIGGER reject_retry BEFORE INSERT ON ai_generation_retries FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='test failure'");
+        assertThrows(org.springframework.dao.DataAccessException.class, () -> store.retry(source.id(), 7, "retry"));
+        assertNull(store.snapshot(source.id(), 7).supersededBy());
+        assertEquals(source.id(), messageMapper.selectBySessionId(source.sessionId()).getLast().getGenerationId());
+        assertEquals(2, jdbc.queryForObject("SELECT COUNT(*) FROM ai_messages", Integer.class));
+        assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM ai_generation_tasks", Integer.class));
     }
 
     private AiChatRequest request(String session, String content) {
