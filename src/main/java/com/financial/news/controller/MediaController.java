@@ -2,6 +2,7 @@ package com.financial.news.controller;
 
 import com.financial.news.common.Result;
 import com.financial.news.service.MediaService;
+import com.financial.news.security.JwtUserDetails;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -26,12 +27,12 @@ public class MediaController {
     @Operation(summary = "上传图片", description = "支持 jpeg/png/gif/webp，不超过 10MB；返回的 url 可用于草稿封面、正文 ImageBlock")
     @PostMapping("/image")
     public Result<Map<String, String>> uploadImage(@RequestParam("file") MultipartFile file) {
-        return Result.ok(Map.of("url", mediaService.uploadImage(file)));
+        return Result.ok(Map.of("url", mediaService.uploadImage(file, JwtUserDetails.getCurrentUser().getUserId())));
     }
 
     @Operation(summary = "上传视频", description = "支持 mp4/mov、webm/mkv，不超过 200MB；返回的 url 可用于正文 VideoBlock")
     @PostMapping("/video")
     public Result<Map<String, String>> uploadVideo(@RequestParam("file") MultipartFile file) {
-        return Result.ok(Map.of("url", mediaService.uploadVideo(file)));
+        return Result.ok(Map.of("url", mediaService.uploadVideo(file, JwtUserDetails.getCurrentUser().getUserId())));
     }
 }

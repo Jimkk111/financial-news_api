@@ -42,6 +42,7 @@ public class DraftService {
     private final DraftTagMapper draftTagMapper;
     private final NewsTagMapper newsTagMapper;
     private final TagMapper tagMapper;
+    private final MediaAccessService mediaAccessService;
 
     /**
      * 获取当前用户的草稿列表（按更新时间倒序，只返回 status='draft'）
@@ -68,6 +69,7 @@ public class DraftService {
                 .categoryId(request.getCategoryId())
                 .status("draft")
                 .build();
+        mediaAccessService.prepareForSave(draft, userId, java.util.Set.of());
         draftMapper.insert(draft);
         saveDraftTags(draft.getId(), request.getTags());
         draft.setTags(request.getTags() == null ? List.of() : request.getTags());
@@ -95,6 +97,7 @@ public class DraftService {
     @Transactional
     public Draft updateDraft(String draftId, Integer userId, DraftUpdateRequest request) {
         Draft draft = getDraft(draftId, userId);
+        var existingMedia = mediaAccessService.references(draft);
         if ("published".equals(draft.getStatus())) {
             throw new BusinessException(ErrorCode.DRAFT_ALREADY_PUBLISHED);
         }
@@ -110,6 +113,7 @@ public class DraftService {
             replaceDraftTags(draftId, request.getTags());
             draft.setTags(request.getTags());
         }
+        mediaAccessService.prepareForSave(draft, userId, existingMedia);
         draftMapper.updateById(draft);
         return draft;
     }
@@ -135,6 +139,7 @@ public class DraftService {
             throw new BusinessException(ErrorCode.BAD_REQUEST, "草稿标题不能为空");
         }
 
+        mediaAccessService.prepareForSave(draft, userId, mediaAccessService.references(draft));
         List<Block> contentJson = draft.getContentJson() != null
                 ? draft.getContentJson()
                 : ContentCodec.fromHtml(draft.getContent() == null ? "" : draft.getContent());

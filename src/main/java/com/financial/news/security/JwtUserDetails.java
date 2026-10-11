@@ -39,8 +39,10 @@ public class JwtUserDetails {
      * 获取当前登录用户，匿名时返回 null（供公开接口可选使用）
      */
     public static JwtUserDetails getCurrentUserOrNull() {
-        Object principal = org.springframework.security.core.context.SecurityContextHolder
-                .getContext().getAuthentication().getPrincipal();
+        var authentication = org.springframework.security.core.context.SecurityContextHolder
+                .getContext().getAuthentication();
+        if (authentication == null) return null;
+        Object principal = authentication.getPrincipal();
         if (principal instanceof JwtUserDetails) {
             return (JwtUserDetails) principal;
         }

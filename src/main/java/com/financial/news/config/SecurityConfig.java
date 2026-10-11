@@ -54,6 +54,8 @@ public class SecurityConfig {
                 .requestMatchers("/health", "/api").permitAll()
                 .requestMatchers("/api/auth/**").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/news/**").permitAll()
+                // 新闻媒体允许匿名续签；草稿和未保存上传由业务层校验所有权。
+                .requestMatchers(HttpMethod.GET, "/api/media/access").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/news/*/views").permitAll()
                 // 行情公开只读接口（限流由 QuoteRateLimitInterceptor 承担）
                 .requestMatchers(HttpMethod.GET, "/api/quotes/**").permitAll()

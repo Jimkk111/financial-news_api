@@ -173,6 +173,8 @@ upload:
     bucket: ${OSS_BUCKET:financial-news}
     dir: media                                 # 对象 Key 前缀
     custom-domain: ${OSS_CUSTOM_DOMAIN:}       # 可选自定义/CDN 域名，如 https://cdn.example.com；为空则用 bucket 外网域名
+    region: ${OSS_REGION:} # 标准 Endpoint 可自动推断地域
+    signed-url-ttl-seconds: ${OSS_SIGNED_URL_TTL_SECONDS:3600}
 
 # 行情模块配置（公开只读接口：/api/quotes/**；长桥需要配置凭证，生产通过环境变量注入）
 quote:

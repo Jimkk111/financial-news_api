@@ -45,7 +45,7 @@ public final class FileTypes {
             if (hex.startsWith(entry.getValue())) {
                 // RIFF 前缀同时命中 webp 与 avi，需进一步核对 WEBP 子标识
                 if ("webp".equals(entry.getKey())) {
-                    if (hex.length() >= 12 && hex.regionMatches(8, "57454250", 0, 8)) {
+                    if (hex.length() >= 24 && hex.regionMatches(16, "57454250", 0, 8)) {
                         return "webp";
                     }
                     continue;
