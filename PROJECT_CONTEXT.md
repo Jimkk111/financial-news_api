@@ -1,10 +1,10 @@
 # Project Context
 
-> 可提交的项目速览，供新会话定向阅读使用。当前实现以源码与运行配置为准；历史文档只作补充。更新时间：2026-09-29。分支：`feat-v700`；HEAD：`faa0ab2`。
+> 可提交的项目速览，供新会话定向阅读使用。当前实现以源码与运行配置为准。原全文更新时间：2026-09-29；2026-10-11 定向更新 AI 生成与测试/CI 信息，其余模块未全面复核。当前分支：`feat-v900`；本次改动前 HEAD：`a774729`。
 
 ## 项目定位与权威性
 
-这是一个 Java/Spring Boot 财经新闻后端，提供认证、新闻浏览与搜索、草稿/收藏/历史、AI 对话和多 Agent 新闻爬取能力。事实优先级为：当前源码与配置 > Docker/部署文件 > 项目文档 > Git 历史。仓库当前没有 README 和业务测试源码；CI/CD 由 GitHub Actions 承担（见下文）。
+这是一个 Java/Spring Boot 财经新闻后端，提供认证、新闻浏览与搜索、草稿/收藏/历史、AI 对话和多 Agent 新闻爬取能力。事实优先级为：当前源码与配置 > Docker/部署文件 > 项目文档 > Git 历史。仓库没有 README；已有业务测试，CI/CD 由 GitHub Actions 承担（见下文）。
 
 ## 技术栈
 
@@ -42,7 +42,7 @@ src/main/resources/
 
 ### 本地 Maven（Inference）
 
-仓库未文档化本地命令，也没有 Maven Wrapper；以下是标准 Maven/Spring Boot 约定：
+没有 Maven Wrapper；以下是标准 Maven/Spring Boot 约定：
 
 ```bash
 mvn spring-boot:run
@@ -50,7 +50,7 @@ mvn test
 mvn clean package
 ```
 
-`pom.xml` 虽包含测试依赖，但当前未发现 `src/test` 或其他业务测试源码，不能据此推断存在测试覆盖。
+`src/test` 已包含 AI、新闻、行情、内容转换与爬虫清洗测试。AI MySQL 事务测试通过 `AI_GENERATION_TEST_JDBC_URL` 启用，只操作专用测试实例中随机创建的测试库；接入说明见 `docs/ai-generation-lifecycle.md`。
 
 ### Docker Compose（Fact）
 
@@ -71,7 +71,7 @@ docker compose down -v   # 会删除数据卷，谨慎执行
 
 ### CI/CD：GitHub Actions（Fact）
 
-- `.github/workflows/ci.yml`：所有分支 push 和指向 main 的 PR 触发；`mvn -B -ntp verify` 编译打包校验（当前无测试源码）+ `docker build` 镜像可构建校验；按分支并发去重。
+- `.github/workflows/ci.yml`：所有分支 push 和指向 main 的 PR 触发；`mvn -B -ntp verify` 编译/测试/打包 + `docker build` 镜像可构建校验；独立 MySQL 8 service 执行 AI 任务事务测试；按分支并发去重。
 - `.github/workflows/deploy.yml`：push 到 `main` 或手动触发；先在 runner 上 `mvn verify` 预检，再经 SSH（`appleboy/ssh-action`）到服务器执行 `git reset --hard origin/<ref>` + `docker compose up -d --build`，最后用 `GET /health`（127.0.0.1:3000）做最长 2 分钟的健康检查，失败时输出 app 日志。
 - 依赖仓库 Secrets：`SSH_HOST`、`SSH_PORT`、`SSH_USER`、`SSH_PRIVATE_KEY`（专用部署密钥，公钥在服务器部署用户 `authorized_keys`）、`DEPLOY_PATH`（服务器项目路径）。分支模型：feat 分支只跑 CI，`main` 是唯一自动部署分支；`pre-release`/`release` 已闲置（曾与 main 同点）。
 
@@ -90,7 +90,7 @@ docker compose down -v   # 会删除数据卷，谨慎执行
 
 - 认证：`POST /api/auth/login|register|logout|send-code|reset-password`（`controller/AuthController.java:20-64`）。登录/注册将 JWT 写入 Cookie；登出清除 Cookie。
 - 新闻：`GET /api/news`、`/{id}`、`/{id}/views`、`/categories`、`/tags`、`/search`（`controller/NewsController.java:19-69`）。
-- AI：会话/消息 CRUD、`POST /api/ai/chat`、`POST /api/ai/chat/stream`（`controller/AiController.java:23-77`）。
+- AI：会话/消息 CRUD、`POST /api/ai/chat`、`POST /api/ai/chat/stream`；新增 `POST /api/ai/generations`、`GET /{id}`、`GET /{id}/events`、`POST /{id}/cancel`（`controller/AiGenerationController.java`）。
 - 爬虫：`POST /api/crawler/crawl`、`POST /api/crawler/crawl/stream`，请求 `instruction` 必填 2–500 字符，`sessionId` 可选（`controller/CrawlerController.java:24-63`、`dto/request/CrawlerRequest.java:13-25`）。
 - 媒体：`POST /api/media/image`（≤10MB，jpeg/png/gif/webp）、`POST /api/media/video`（≤200MB，mp4/mov、webm/mkv），multipart 字段 `file`，存储到阿里云 OSS（`service/MediaService.java`），返回 `{url}`；未配置 OSS 时返回 503 `MEDIA_NOT_CONFIGURED`。
 - 其他：草稿、收藏、浏览历史、用户资料；系统健康检查 `GET /health` 和 `GET /api`。
@@ -118,15 +118,26 @@ Planner -> Scraper -> Processor -> Writer
 ## 约定与当前实现注意事项
 
 - 以当前 Java 实现为准；`docs/crawler-agent-delivery.md` 仍含旧单 Agent/能力描述，`docs/refactor.md` 是 Node.js 到 Java 的历史迁移资料，可能与现状不符。
-- `POST /api/crawler/crawl/stream` 虽声明 `text/event-stream`，当前仍同步执行并返回普通 `Result`（`CrawlerController.java:49-63`、`CrawlerAgentService.java:65-70`）。AI stream 也会先得到完整响应后逐字符发送，而非真正的上游流式（`service/AiService.java:218-225`）。
+- `POST /api/crawler/crawl/stream` 虽声明 `text/event-stream`，当前仍同步执行并返回普通 `Result`（`CrawlerController.java:49-63`、`CrawlerAgentService.java:65-70`）。AI stream 已通过 `OpenAiCompatibleClient` 实时解析正文/思考链/来源，生成任务与浏览器订阅解耦，增量先保存再推送。
 - 爬虫 `userId` 当前只用于记录/传递，`sessionId` 原样返回；当前流程不再把爬虫消息保存到 `ai_messages`。
 - 旧 `service/crawler/CrawlerAgent.java` 仍存在，但当前配置没有为它注册 Bean，实际使用四个新 Agent。
 - `CrawlerTools.checkUrlsExist` 的说明声称按 URL 检查，但实现只统计新闻总数（`CrawlerTools.java:627-642`），修改前需核实契约。
 - 不要把 `application-dev.yml`、真实 `.env`、日志、构建产物或上传内容写入本文件。
 
+## AI 生成任务（2026-10-11 定向更新）
+
+- `AiGenerationStore`：事务创建用户消息、空助手消息和 queued 任务；MySQL 任务表兼作持久队列，领取使用 SKIP LOCKED，无外部队列投递间隙。
+- `AiGenerationService`：每实例 4 个生成 Worker、5 秒协调周期、30 秒租约；独立订阅每 250 毫秒补发已提交事件，断连/刷新只结束订阅。
+- 正文/思考链/来源按上游增量持久化。取消与增量写入锁定同一任务行；停止、失败保留部分输出，过期 Worker 写入被拒绝。
+- 原 POST stream 保留 data JSON 与 `[DONE]`，新增 generationId/messageId/seq/status；前端停止必须调用 cancel，不能只 abort 接收流。
+- 同一会话未结束任务禁止重叠生成和会话删除；非流式 chat 保持原实现。
+- `AiGenerationSchemaInitializer` 启动时幂等执行 `db/migration/v900-ai-generations.sql`；新增 tasks/events 表，历史消息关联任务元数据。
+- 当前 Chat Completions 上游无法续接原请求，Worker 故障后标记 failed 并保留内容，不从头生成后拼接。
+- 新源码入口：`controller/AiGenerationController.java`、`service/ai/{AiGenerationStore,AiGenerationService,OpenAiCompatibleClient}.java`；接入契约见 `docs/ai-generation-lifecycle.md`。
+
 ## Git 与近期演进
 
-当前分支/提交：`feat-v700` / `faa0ab2`（接入 GitHub Actions CI/CD）。近期相关提交：
+本次改动前分支/提交：`feat-v900` / `a774729`。下列为原上下文保留的历史提交：
 
 - `faa0ab2`：接入 GitHub Actions（编译+镜像校验 CI，main 分支 SSH 自动部署）。
 - `e4c2edf`：正文切换严格 JSON 契约。

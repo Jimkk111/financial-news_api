@@ -36,5 +36,10 @@ public class AiMessage {
     /** 联网搜索引用来源（JSON 数组字符串：title/url/summary/siteName/publishTime/logoUrl） */
     private String sources;
 
+    /** Persisted generation metadata; null for older or synchronous messages. */
+    private String generationId;
+    private String status;
+    private Long lastSeq;
+
     private LocalDateTime createdAt;
 }

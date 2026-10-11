@@ -6,6 +6,7 @@ import com.financial.news.dto.request.AiSessionUpdateRequest;
 import com.financial.news.entity.AiMessage;
 import com.financial.news.security.JwtUserDetails;
 import com.financial.news.service.AiService;
+import jakarta.servlet.http.HttpServletResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -72,7 +73,11 @@ public class AiController {
 
     @Operation(summary = "AI 对话（流式 SSE）")
     @PostMapping(value = "/chat/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE) @SecurityRequirement(name = "BearerAuth")
-    public SseEmitter chatStream(@Valid @RequestBody AiChatRequest request) {
-        return aiService.chatStream(JwtUserDetails.getCurrentUser().getUserId(), request);
+    public SseEmitter chatStream(@Valid @RequestBody AiChatRequest request,
+                                 @RequestHeader(value = "Idempotency-Key", required = false) String key,
+                                 HttpServletResponse response) {
+        response.setHeader("Cache-Control", "no-cache");
+        response.setHeader("X-Accel-Buffering", "no");
+        return aiService.chatStream(JwtUserDetails.getCurrentUser().getUserId(), request, key);
     }
 }

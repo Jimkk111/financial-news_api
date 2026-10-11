@@ -6,6 +6,7 @@ import com.financial.news.entity.AiSession;
 import com.financial.news.mapper.AiMessageMapper;
 import com.financial.news.mapper.AiSessionMapper;
 import com.financial.news.service.ai.OpenAiCompatibleClient;
+import com.financial.news.service.ai.AiGenerationService;
 import com.financial.news.service.ai.OpenAiCompatibleClient.ChatParam;
 import com.financial.news.service.ai.OpenAiCompatibleClient.ChatResult;
 import com.financial.news.service.ai.OpenAiCompatibleClient.StreamCallback;
@@ -49,6 +50,9 @@ class AiServiceTest {
     @Mock
     private OpenAiCompatibleClient aiClient;
 
+    @Mock
+    private AiGenerationService generations;
+
     private AiService aiService;
     private AiSession session;
 
@@ -60,7 +64,7 @@ class AiServiceTest {
                 .userId(USER_ID)
                 .build();
         when(aiSessionMapper.selectBySessionId(SESSION_ID)).thenReturn(session);
-        aiService = new AiService(aiSessionMapper, aiMessageMapper, aiClient);
+        aiService = new AiService(aiSessionMapper, aiMessageMapper, aiClient, generations);
     }
 
     @Test
@@ -96,33 +100,14 @@ class AiServiceTest {
     }
 
     @Test
-    void chatStreamPersistsOnlyCurrentUserAndAssistantMessage() throws Exception {
-        CountDownLatch assistantSaved = new CountDownLatch(1);
-        doAnswer(invocation -> {
-            AiMessage message = invocation.getArgument(0);
-            if ("assistant".equals(message.getRole())) {
-                assistantSaved.countDown();
-            }
-            return 1;
-        }).when(aiMessageMapper).insert(any(AiMessage.class));
-        doAnswer(invocation -> {
-            StreamCallback callback = invocation.getArgument(1);
-            callback.onContent("stream-reply");
-            return new ChatResult("stream-reply", "", List.of());
-        }).when(aiClient).stream(anyList(), any(StreamCallback.class), anyBoolean());
-
-        SseEmitter emitter = aiService.chatStream(USER_ID, request(
-                userMessage("历史问题"),
-                assistantMessage("历史回复"),
-                userMessage("当前问题")));
-
-        assertTrue(assistantSaved.await(5, TimeUnit.SECONDS));
-        assertNotNull(emitter);
-
-        ArgumentCaptor<AiMessage> messageCaptor = ArgumentCaptor.forClass(AiMessage.class);
-        verify(aiMessageMapper, times(2)).insert(messageCaptor.capture());
-        assertEquals(List.of("当前问题", "stream-reply"),
-                messageCaptor.getAllValues().stream().map(AiMessage::getContent).toList());
+    void chatStreamDelegatesToPersistentGenerationService() {
+        org.mockito.Mockito.reset(aiSessionMapper);
+        AiChatRequest request = request(userMessage("当前问题"));
+        SseEmitter emitter = new SseEmitter();
+        when(generations.legacyStream(USER_ID, request, "request-123")).thenReturn(emitter);
+        assertEquals(emitter, aiService.chatStream(USER_ID, request, "request-123"));
+        verify(generations).legacyStream(USER_ID, request, "request-123");
+        org.mockito.Mockito.verifyNoInteractions(aiClient, aiMessageMapper);
     }
 
     @Test

@@ -22,6 +22,7 @@ import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * OpenAI 兼容接口直连客户端
@@ -50,7 +51,7 @@ public class OpenAiCompatibleClient {
 
     /**
      * 流式回调。回调内抛出的任何异常都会中止上游请求并以该异常结束 {@link #stream}，
-     * 用于客户端断连时及时停止生成计费。
+     * 用于持久化失败或主动取消时终止生成；浏览器连接不属于这个生命周期。
      */
     public interface StreamCallback {
         /** 思考链增量（reasoning_content） */
@@ -63,6 +64,23 @@ public class OpenAiCompatibleClient {
         default void onSources(List<Source> sources) {}
     }
 
+    /** Explicit cancellation also works during silent reasoning, before the next token arrives. */
+    public static class StreamCancellation {
+        private final AtomicBoolean cancelled = new AtomicBoolean();
+        private final AtomicReference<Runnable> stop = new AtomicReference<>();
+        public boolean isCancelled() { return cancelled.get(); }
+        public void cancel() {
+            cancelled.set(true);
+            Runnable action = stop.get();
+            if (action != null) action.run();
+        }
+        private void attach(Runnable action) {
+            stop.set(action);
+            if (cancelled.get()) action.run();
+        }
+        private void detach() { stop.set(null); }
+    }
+
     /** 上游调用失败（网络错误 / 非 2xx / 流中断），message 已脱敏为可记日志的摘要 */
     public static class AiRemoteException extends RuntimeException {
         public AiRemoteException(String message) { super(message); }
@@ -72,7 +90,7 @@ public class OpenAiCompatibleClient {
     private static final MediaType JSON = MediaType.parse("application/json; charset=utf-8");
     /** 上游错误响应体只保留前 500 字符进异常消息，避免日志与异常膨胀 */
     private static final int ERROR_BODY_LIMIT = 500;
-    /** 流式整体等待上限，与 SseEmitter 超时（300s）留出余量 */
+    /** 后台上游调用上限，独立于浏览器订阅超时。 */
     private static final long STREAM_AWAIT_SECONDS = 280;
 
     @Value("${ai.api-key:}") private String apiKey;
@@ -143,23 +161,35 @@ public class OpenAiCompatibleClient {
      * 上游失败或 callback 抛异常时中止请求并以异常结束。
      */
     public ChatResult stream(List<ChatParam> messages, StreamCallback callback, boolean webSearch) {
+        return stream(messages, callback, webSearch, new StreamCancellation());
+    }
+
+    public ChatResult stream(List<ChatParam> messages, StreamCallback callback, boolean webSearch,
+                             StreamCancellation cancellation) {
+        if (cancellation.isCancelled()) throw new AiRemoteException("AI 生成已取消");
         Request request = buildRequest(messages, true, webSearch, maxTokens, temperature);
         CountDownLatch done = new CountDownLatch(1);
         AtomicReference<Throwable> failure = new AtomicReference<>();
         StringBuilder content = new StringBuilder();
         StringBuilder reasoning = new StringBuilder();
         List<Source> sources = new ArrayList<>();
+        AtomicBoolean completed = new AtomicBoolean();
 
         EventSourceListener listener = new EventSourceListener() {
             @Override
             public void onEvent(EventSource source, String id, String type, String data) {
                 try {
+                    if (cancellation.isCancelled()) { source.cancel(); done.countDown(); return; }
                     if ("[DONE]".equals(data.trim())) {
+                        completed.set(true);
                         done.countDown();
                         source.cancel();
                         return;
                     }
-                    JsonNode delta = mapper.readTree(data).path("choices").path(0).path("delta");
+                    JsonNode chunk = mapper.readTree(data);
+                    if (chunk.has("error")) throw new AiRemoteException("AI 上游流返回错误");
+                    JsonNode choice = chunk.path("choices").path(0);
+                    JsonNode delta = choice.path("delta");
                     // 部分 OpenAI 兼容实现（vLLM/中转站）最后会发一个 choices 为空的 usage 块，path() 天然跳过
                     String reasoningDelta = delta.path("reasoning_content").asText("");
                     if (!reasoningDelta.isEmpty()) {
@@ -177,8 +207,11 @@ public class OpenAiCompatibleClient {
                         sources.addAll(chunkSources);
                         callback.onSources(List.copyOf(chunkSources));
                     }
+                    if (!choice.path("finish_reason").isMissingNode() && !choice.path("finish_reason").isNull()) {
+                        completed.set(true);
+                    }
                 } catch (Exception e) {
-                    // callback 抛异常（如 SSE 客户端已断连）或响应体畸形：中止上游，向调用方透传
+                    // 持久化失败、停止或响应体畸形：中止上游，向调用方透传。
                     failure.compareAndSet(null, e);
                     done.countDown();
                     source.cancel();
@@ -187,6 +220,9 @@ public class OpenAiCompatibleClient {
 
             @Override
             public void onClosed(EventSource source) {
+                if (!completed.get() && !cancellation.isCancelled()) {
+                    failure.compareAndSet(null, new AiRemoteException("AI 上游流在完成前中断"));
+                }
                 done.countDown();
             }
 
@@ -207,6 +243,7 @@ public class OpenAiCompatibleClient {
         };
 
         EventSource eventSource = EventSources.createFactory(client()).newEventSource(request, listener);
+        cancellation.attach(() -> { eventSource.cancel(); done.countDown(); });
         try {
             if (!done.await(STREAM_AWAIT_SECONDS, TimeUnit.SECONDS)) {
                 eventSource.cancel();
@@ -216,7 +253,11 @@ public class OpenAiCompatibleClient {
             eventSource.cancel();
             Thread.currentThread().interrupt();
             throw new AiRemoteException("AI 流式响应等待被中断", e);
+        } finally {
+            cancellation.detach();
         }
+
+        if (cancellation.isCancelled()) throw new AiRemoteException("AI 生成已取消");
 
         Throwable t = failure.get();
         if (t instanceof AiRemoteException ae) {

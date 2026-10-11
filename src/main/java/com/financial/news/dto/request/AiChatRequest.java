@@ -16,7 +16,7 @@ import java.util.List;
 public class AiChatRequest {
     @NotEmpty @Size(min = 1, max = 50)
     @Schema(description = "消息列表")
-    private List<ChatMessage> messages;
+    private List<@jakarta.validation.Valid ChatMessage> messages;
 
     @Schema(description = "会话ID（不传则自动创建）", example = "session-a1b2c3d4")
     private String sessionId;
@@ -31,6 +31,7 @@ public class AiChatRequest {
     @Schema(description = "对话消息")
     public static class ChatMessage {
         @NotBlank
+        @Pattern(regexp = "(?i)user|assistant|system")
         @Schema(description = "角色：user/assistant/system", example = "user")
         private String role;
 

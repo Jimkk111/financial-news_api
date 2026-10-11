@@ -8,10 +8,10 @@ import com.financial.news.entity.AiSession;
 import com.financial.news.mapper.AiMessageMapper;
 import com.financial.news.mapper.AiSessionMapper;
 import com.financial.news.service.ai.OpenAiCompatibleClient;
+import com.financial.news.service.ai.AiGenerationService;
 import com.financial.news.service.ai.OpenAiCompatibleClient.ChatParam;
 import com.financial.news.service.ai.OpenAiCompatibleClient.ChatResult;
 import com.financial.news.service.ai.OpenAiCompatibleClient.Source;
-import com.financial.news.service.ai.OpenAiCompatibleClient.StreamCallback;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.financial.news.utils.IdGenerator;
 import lombok.RequiredArgsConstructor;
@@ -20,13 +20,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
-import java.io.IOException;
 import java.util.*;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ScheduledFuture;
-import java.util.concurrent.TimeUnit;
 
 /**
  * AI 服务
@@ -47,32 +41,10 @@ public class AiService {
     private final AiSessionMapper aiSessionMapper;
     private final AiMessageMapper aiMessageMapper;
     private final OpenAiCompatibleClient aiClient;
+    private final AiGenerationService generations;
 
     /** sources 落库序列化（ai_messages.sources 存 JSON 数组字符串，前端历史回显直接可用） */
     private static final ObjectMapper SOURCES_CODEC = new ObjectMapper();
-
-    /** SSE 流式推送专用线程池，避免占用公共 ForkJoinPool 和请求线程 */
-    private final java.util.concurrent.ExecutorService sseExecutor =
-            new java.util.concurrent.ThreadPoolExecutor(
-                    2, 8, 60L, java.util.concurrent.TimeUnit.SECONDS,
-                    new java.util.concurrent.LinkedBlockingQueue<>(64),
-                    r -> {
-                        Thread t = new Thread(r, "ai-sse-" + r.hashCode());
-                        t.setDaemon(true);
-                        return t;
-                    },
-                    new java.util.concurrent.ThreadPoolExecutor.CallerRunsPolicy());
-
-    /** 心跳调度器：思考期间若无任何 token 到达，定期发 SSE 注释行防止链路被中间层/前端空闲超时掐断 */
-    private final ScheduledExecutorService heartbeatScheduler =
-            Executors.newSingleThreadScheduledExecutor(r -> {
-                Thread t = new Thread(r, "ai-sse-heartbeat");
-                t.setDaemon(true);
-                return t;
-            });
-
-    /** 心跳间隔：小于前端 30s 空闲超时，留足余量 */
-    private static final int HEARTBEAT_INTERVAL_SECONDS = 15;
 
     /** 获取用户的 AI 会话列表（批量取各会话最后一条消息，避免 N+1） */
     public List<Map<String, Object>> listSessions(Integer userId) {
@@ -126,6 +98,7 @@ public class AiService {
     @Transactional
     public void deleteSession(String sessionId, Integer userId) {
         AiSession session = findSession(sessionId, userId);
+        generations.guardSessionDeletion(session.getId());
         aiMessageMapper.deleteBySessionId(session.getId());
         aiSessionMapper.deleteById(session.getId());
     }
@@ -165,133 +138,13 @@ public class AiService {
         return result;
     }
 
-    /**
-     * AI 对话（流式 SSE）
-     * <p>事件契约（均为 {@code data:} JSON）：</p>
-     * <ul>
-     *   <li>{@code {"sessionId":"..."}} —— 请求受理即发送（提交响应头，前端可立即感知）</li>
-     *   <li>{@code {"sources":[...]}} —— 联网搜索引用来源，随上游首包一次性到达（可有多批）</li>
-     *   <li>{@code {"reasoning":"增量"}} —— 思考链增量，正文开始前持续到达</li>
-     *   <li>{@code {"content":"增量"}} —— 正文增量</li>
-     *   <li>{@code {"error":"..."}} —— 上游返回了内容但正文为空等业务失败，随后仍会发 [DONE]</li>
-     *   <li>{@code [DONE]} —— 正常结束</li>
-     * </ul>
-     * <p>思考期等静默阶段每 15s 发一条 SSE 注释行（: keep-alive）保活。</p>
-     */
+    /** Legacy SSE payloads are retained; disconnecting now only removes the subscription. */
     public SseEmitter chatStream(Integer userId, AiChatRequest request) {
-        SseEmitter emitter = new SseEmitter(300000L); // 5分钟超时
-        CompletableFuture.runAsync(() -> {
-            ScheduledFuture<?> heartbeat = null;
-            long startMs = System.currentTimeMillis();
-            java.util.concurrent.atomic.AtomicLong firstEventMs = new java.util.concurrent.atomic.AtomicLong(0);
-            Runnable markFirstEvent = () -> firstEventMs.compareAndSet(0, System.currentTimeMillis());
-            // 声明在 try 外：客户端断开时 catch 里也要统计已收正文量
-            StringBuilder content = new StringBuilder();
-            try {
-                AiSession session = resolveSession(userId, request.getSessionId());
-                // 早冲刷：受理即回传 sessionId 提交响应头，避免长时间 pending 且前端空闲计时从此时起算
-                sendEvent(emitter, Map.of("sessionId", session.getSessionId()));
-
-                // 保存本轮用户消息。请求中的其余消息仅作为 AI 上下文，避免历史消息重复入库。
-                List<AiChatRequest.ChatMessage> sendMsgs = limitContextMessages(request.getMessages());
-                saveCurrentUserMessage(session, sendMsgs);
-                boolean webSearch = Boolean.TRUE.equals(request.getWebSearch());
-                log.info("AI 流式对话开始: session={}, webSearch={}", session.getSessionId(), webSearch);
-
-                // 心跳兜底：用 data 事件而非 SSE 注释行，防中间层（网关/CDN）吞注释导致前端空闲超时
-                heartbeat = heartbeatScheduler.scheduleAtFixedRate(() -> {
-                    try {
-                        emitter.send(SseEmitter.event().data(Map.of("heartbeat", true)));
-                    } catch (Exception e) {
-                        log.debug("SSE 心跳发送失败（客户端可能已断开）: {}", e.getMessage());
-                    }
-                }, HEARTBEAT_INTERVAL_SECONDS, HEARTBEAT_INTERVAL_SECONDS, TimeUnit.SECONDS);
-
-                StringBuilder reasoning = new StringBuilder();
-                List<Source> sources = new ArrayList<>();
-                aiClient.stream(toParams(sendMsgs, webSearch), new StreamCallback() {
-                    @Override
-                    public void onReasoning(String delta) {
-                        markFirstEvent.run();
-                        reasoning.append(delta);
-                        sendEvent(emitter, Map.of("reasoning", delta));
-                    }
-
-                    @Override
-                    public void onContent(String delta) {
-                        markFirstEvent.run();
-                        content.append(delta);
-                        sendEvent(emitter, Map.of("content", delta));
-                    }
-
-                    @Override
-                    public void onSources(List<Source> chunkSources) {
-                        markFirstEvent.run();
-                        sources.addAll(chunkSources);
-                        sendEvent(emitter, Map.of("sources", chunkSources));
-                    }
-                }, webSearch);
-
-                if (content.toString().isBlank()) {
-                    // 思考型模型可能耗尽 max_tokens 只剩思考链：以流内 error 事件告知前端，连接正常收尾
-                    sendEvent(emitter, Map.of("error", "AI 响应内容为空"));
-                } else {
-                    aiMessageMapper.insert(AiMessage.builder()
-                            .sessionId(session.getId()).role("assistant")
-                            .content(content.toString()).reasoningContent(reasoning.toString())
-                            .sources(toSourcesJson(sources))
-                            .build());
-                    touchSession(session, content.toString());
-                }
-                emitter.send(SseEmitter.event().data("[DONE]"));
-                emitter.complete();
-                log.info("AI 流式对话完成: session={}, webSearch={}, 首 token {}ms, 正文 {} 字, 思考链 {} 字, 来源 {} 条, 总耗时 {}ms",
-                        session.getSessionId(), webSearch,
-                        firstEventMs.get() == 0 ? -1 : firstEventMs.get() - startMs,
-                        content.length(), reasoning.length(), sources.size(),
-                        System.currentTimeMillis() - startMs);
-            } catch (SseClientDisconnectedException e) {
-                // 设计内行为（用户停止生成/离开页面）：上游已随之中止，不按错误处理，
-                // 也不 completeWithError——对已断连接派发 ERROR 只会产生容器噪音日志
-                log.info("AI 流式对话客户端断开, 已中止上游生成: 首 token {}ms, 已收正文 {} 字, 总耗时 {}ms",
-                        firstEventMs.get() == 0 ? -1 : firstEventMs.get() - startMs,
-                        content.length(), System.currentTimeMillis() - startMs);
-                try {
-                    emitter.complete();
-                } catch (Exception ignore) {
-                    // 连接已死，忽略
-                }
-            } catch (Exception e) {
-                log.error("AI 流式对话异常: 首 token {}ms, 总耗时 {}ms",
-                        firstEventMs.get() == 0 ? -1 : firstEventMs.get() - startMs,
-                        System.currentTimeMillis() - startMs, e);
-                emitter.completeWithError(e);
-            } finally {
-                if (heartbeat != null) {
-                    heartbeat.cancel(false);
-                }
-            }
-        }, sseExecutor);
-        return emitter;
+        return chatStream(userId, request, null);
     }
 
-    /** 客户端断开标记：sendEvent 失败时抛出，用于与上游真实异常区分（设计内行为，不按 ERROR 处理） */
-    private static class SseClientDisconnectedException extends RuntimeException {
-        SseClientDisconnectedException(String message, Throwable cause) {
-            super(message, cause);
-        }
-    }
-
-    /**
-     * 发送 SSE data 事件；客户端断开后的 send 失败以运行时异常抛出，
-     * 经流式 callback 传播中止上游生成（停止计费），由外层统一处理。
-     */
-    private void sendEvent(SseEmitter emitter, Object payload) {
-        try {
-            emitter.send(SseEmitter.event().data(payload));
-        } catch (IOException | IllegalStateException e) {
-            throw new SseClientDisconnectedException("SSE 客户端已断开: " + e.getMessage(), e);
-        }
+    public SseEmitter chatStream(Integer userId, AiChatRequest request, String idempotencyKey) {
+        return generations.legacyStream(userId, request, idempotencyKey);
     }
 
     /** 首轮对话用回复生成标题，后续轮次刷新更新时间 */

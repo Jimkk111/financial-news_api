@@ -18,6 +18,9 @@
         <result column="content" property="content"/>
         <result column="reasoning_content" property="reasoningContent"/>
         <result column="sources" property="sources"/>
+        <result column="generation_id" property="generationId"/>
+        <result column="generation_status" property="status"/>
+        <result column="last_seq" property="lastSeq"/>
         <result column="created_at" property="createdAt"/>
     </resultMap>
 
@@ -27,10 +30,11 @@
     </insert>
 
     <select id="selectBySessionId" resultMap="BaseResultMap">
-        SELECT id, session_id, role, content, reasoning_content, sources, created_at
-        FROM ai_messages
-        WHERE session_id = #{sessionId}
-        ORDER BY created_at ASC
+        SELECT m.*, g.id AS generation_id, g.status AS generation_status, g.last_seq
+        FROM ai_messages m
+        LEFT JOIN ai_generation_tasks g ON g.message_id = m.id
+        WHERE m.session_id = #{sessionId}
+        ORDER BY m.created_at ASC, m.id ASC
     </select>
 
     <delete id="deleteBySessionId">

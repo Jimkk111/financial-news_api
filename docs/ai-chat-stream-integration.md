@@ -1,5 +1,7 @@
 # AI 对话流式接口对接文档（思考链版）
 
+> 2026-10-11 更新：生成任务现已持久化，断开 SSE 不会停止生成。新增创建、快照、续传和取消接口详见 [生成任务生命周期与前端接入](ai-generation-lifecycle.md)。停止按钮必须调用取消接口。
+
 > 背景：思考型模型（MiMo 等）生成正文前会先输出 `reasoning_content` 思考链。旧后端用的
 > langchain4j 不映射该字段，思考期间前端收不到任何数据，表现为「发消息后十几秒无响应，
 > 然后内容一瞬间全部到达」。本次后端改为直连上游并把思考链实时透传，**SSE 事件契约有新增**。
@@ -41,12 +43,12 @@
   可达 30s+），`webSearch=true` 时建议把空闲超时放宽到 60s（或按"收到任何字节"重置计时），
   否则可能误杀长搜索请求（后端表现为 Broken pipe）。
 - **早冲刷**：响应头随第 1 个事件立即提交（原来要等首个正文 token），DevTools 不再长时间 pending。
-- **断连即停**：用户点「停止生成」断开 SSE 后，后端会中止上游请求，不再白白生成计费；
-  这是设计内行为，后端按 INFO 记录（`AI 流式对话客户端断开`），不是故障。
-- 超时：SseEmitter 300s；上游整体 280s；前端现有 30s 空闲超时因心跳+思考链流不再误杀。
-- **观测日志**：每轮流式对话后端记两条 INFO——`AI 流式对话开始: session=…, webSearch=…`
-  与 `AI 流式对话完成: …首 token Xms, 正文 X 字, 思考链 X 字, 来源 X 条, 总耗时 Xms`，
-  排查响应慢/断连类问题先看这两条。
+- **断连继续**：关闭 SSE、页面退出或网络异常只结束订阅，后台继续保存生成内容。
+- **手动停止**：收到初始化事件中的 `generationId` 后，调用 `POST /api/ai/generations/{generationId}/cancel`。
+  只关闭 SSE 已不再停止上游；停止和失败都保留已保存的回复。
+- 超时：订阅 300s，上游任务 280s，订阅超时不取消后台任务。
+- **持久化与重连**：每个增量事件先提交数据库，事件带 `seq` 和 SSE `id`；
+  重连使用新 GET 订阅端点或快照，不能无幂等键重新提交 POST。
 
 ### 实测时序（mock 上游，可直接作为前端开发的联调预期）
 
@@ -100,18 +102,13 @@ assistant 消息对象新增字段（均可为 null）：
 
 ## 五、后端实现摘要（供 review）
 
-- `service/ai/OpenAiCompatibleClient.java`（新增）：OkHttp 直连 OpenAI 兼容接口，SSE 流式解析
-  `delta.reasoning_content` + `delta.content` + `delta.annotations`（web_search 引用来源归一化）；
-  非流式同步返回三者；上游非 2xx/断流统一抛 `AiRemoteException`；callback 抛异常（客户端断连）会取消上游请求。
-  联网搜索按官方格式注入 `tools:[{type:"web_search", max_keyword, force_search}]` + `tool_choice:"auto"`，
-  并切换到 `ai.web-search.model`（默认 mimo-v2.5-pro；**仅 v2.5 系支持搜索，默认的 v2.6-flash 不支持**）。
-- `AiService`：移除 langchain4j 对话链路与「流式失败回退非流式假打字」逻辑；chatStream 改为
-  受理即发 sessionId → sources（如有）→ 思考链/正文事件 → 落库（含 reasoning_content/sources）→ `[DONE]`；
-  空正文以流内 `error` 事件优雅收尾；首轮自动生成标题（与非流式对齐）；
-  `webSearch=true` 时在消息首位注入带当前日期的系统提示（引用编号要求）。
-- `ai_messages` 新增列 `reasoning_content`（MEDIUMTEXT）、`sources`（JSON）（开发库已 ALTER，新装走 init.sql）。
-- 联网搜索计费：搜索调用 ¥16/千次（`max_keyword` 个关键词按次计），网页内容进入 prompt 计 token 费；
-  `force-search:false` 为意图识别模式，模型自行判断是否搜索以控制成本。
+- `OpenAiCompatibleClient`：解析正文、思考链和来源，支持独立取消信号；
+  静默期主动取消也能关闭上游请求；不完整上游 EOF 被识别为失败。
+- `AiGenerationStore`：数据库持久队列、任务租约、增量事件、事务快照和取消写入边界。
+- `AiGenerationService`：后台生成与浏览器订阅分离；订阅读取已提交事件，不影响模型生命周期。
+- `AiService.chatStream`：兼容原 data JSON 与 `[DONE]` 协议，委托持久任务服务。
+- `ai_generation_tasks`、`ai_generation_events`：启动时自动执行幂等建表迁移。
+- `ai_messages` 保留正文、思考链与来源；历史接口关联返回任务 ID、状态与游标。
 
 ## 六、联调环境
 
