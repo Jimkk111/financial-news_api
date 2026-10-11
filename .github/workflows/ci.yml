@@ -5,10 +5,12 @@ on:
     branches: ["**"]
   pull_request:
     branches: [main]
+  workflow_dispatch:          # 手动发布所选分支，也必须先通过完整 CI
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true   # 同分支新推送取消旧任务，省额度
+  # 开发分支取消旧检查；main 和手动发布不中断正在执行的部署
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && github.event_name != 'workflow_dispatch' }}
 
 jobs:
   build:
@@ -42,3 +44,46 @@ jobs:
 
       - name: Docker 镜像可构建校验
         run: docker build -t financial-news-api:ci .
+
+  deploy:
+    needs: build
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    runs-on: ubuntu-latest
+    environment: production
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+    steps:
+      - name: SSH Deploy
+        env:
+          DEPLOY_SHA: ${{ github.sha }}   # 部署本次 CI 验证过的提交
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          port: ${{ secrets.SSH_PORT }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          envs: DEPLOY_SHA,DEPLOY_PATH
+          script: |
+            set -e
+            cd "$DEPLOY_PATH"
+            git fetch origin "$DEPLOY_SHA"
+            git reset --hard "$DEPLOY_SHA"
+            docker compose up -d --build
+
+            # 等待应用就绪并做健康检查（最长约 2 分钟）
+            ok=0
+            for i in $(seq 1 60); do
+              sleep 2
+              if curl -fsS http://127.0.0.1:3000/health > /dev/null 2>&1; then
+                ok=1
+                break
+              fi
+            done
+            if [ "$ok" != "1" ]; then
+              echo "== 健康检查失败，app 最近日志： =="
+              docker compose logs --tail 80 app || true
+              exit 1
+            fi
+            echo "Deploy OK ($DEPLOY_SHA): $(curl -fsS http://127.0.0.1:3000/health)"

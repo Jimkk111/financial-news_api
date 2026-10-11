@@ -221,6 +221,15 @@ logging:
   level:
     com.financial.news: ${LOG_LEVEL:debug}
     org.springframework.security: info
+  charset:
+    console: UTF-8
+    file: UTF-8
   file:
-    path: ./logs
-    name: ./logs/financial-news-api.log
+    name: ${LOG_DIR:./logs}/financial-news-api.log
+  logback:
+    rollingpolicy:
+      file-name-pattern: ${LOG_DIR:./logs}/financial-news-api.log.%d{yyyy-MM-dd}.%i.gz
+      max-file-size: ${LOG_MAX_FILE_SIZE:50MB}
+      max-history: ${LOG_MAX_HISTORY:30}
+      total-size-cap: ${LOG_TOTAL_SIZE_CAP:1GB}
+      clean-history-on-start: true

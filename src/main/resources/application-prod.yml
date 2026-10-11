@@ -48,5 +48,5 @@ ai:
 # 日志级别
 logging:
   level:
-    com.financial.news: info
+    com.financial.news: ${LOG_LEVEL:info}
     org.springframework.security: warn

@@ -135,7 +135,16 @@ services:
       OSS_CUSTOM_DOMAIN: ${OSS_CUSTOM_DOMAIN:-}
       # 日志 & 调试
       LOG_LEVEL: ${LOG_LEVEL:-info}
+      LOG_DIR: /app/logs
+      LOG_MAX_FILE_SIZE: ${LOG_MAX_FILE_SIZE:-50MB}
+      LOG_MAX_HISTORY: "${LOG_MAX_HISTORY:-30}"
+      LOG_TOTAL_SIZE_CAP: ${LOG_TOTAL_SIZE_CAP:-1GB}
       KNIFE4J_ENABLE: "${KNIFE4J_ENABLE:-false}"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     volumes:
       - uploads-data:/app/uploads
       - logs-data:/app/logs

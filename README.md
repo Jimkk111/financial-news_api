@@ -42,6 +42,25 @@ mvn clean package
 
 新闻定时采集默认每 30 分钟执行，设置 `CRAWLER_INGEST_CRON=-` 可关闭。自然语言爬虫 Agent 默认关闭，可通过 `CRAWLER_AGENT_ENABLED=true` 及对应 AI 配置启用。
 
+## 日志持久化与轮转
+
+本地日志写入 `./logs/financial-news-api.log`，可通过环境变量 `LOG_DIR` 修改目录。控制台和日志文件均使用 UTF-8 编码。
+
+Docker 部署写入 `/app/logs/financial-news-api.log`，由 `logs-data` 数据卷持久保存；重建容器或执行 `docker compose down` 后仍保留，`docker compose down -v` 会删除该卷。
+
+- 每天或单文件达到 50MB 时轮转，归档名为 `financial-news-api.log.YYYY-MM-DD.序号.gz`。
+- 归档保留 30 天，总量上限 1GB；启动时也清理过期归档。上限只针对归档，不包含当前日志及 JVM 堆转储。
+- 在 `.env` 中通过 `LOG_MAX_FILE_SIZE`、`LOG_MAX_HISTORY`、`LOG_TOTAL_SIZE_CAP` 调整规则，通过 `LOG_LEVEL` 调整应用日志级别；修改后执行 `docker compose up -d --build app` 生效。
+- Docker 控制台日志单文件上限 10MB，最多保留 3 个文件。
+
+查看实时日志：
+
+```bash
+docker compose logs -f --tail=200 app
+# 查看持久化文件（容器中默认保留最后 200 行）
+docker compose exec app tail -n 200 -f /app/logs/financial-news-api.log
+```
+
 ## 目录与文档
 
 ```text
