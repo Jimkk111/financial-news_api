@@ -37,6 +37,10 @@ ITICK_TOKEN=YOUR_EXISTING_ITICK_TOKEN
 | `QUOTE_TREND_FRESH_SECONDS` | `60` | 分时缓存新鲜窗口 |
 | `QUOTE_LIST_FRESH_SECONDS` | `15` | 股票页/指数/热门列表缓存新鲜窗口 |
 
+当前 SDK 实际接入地址为 `https://openapi.longbridge.cn` 与
+`wss://openapi-quote.longbridge.cn/v2`；`hk` 使用 `longbridge.com`。
+2026-10-11 本机验证旧 `openapi.longport.cn` 的 TLS 连接失败，已修正为当前 SDK 域名。
+
 连接按首次行情请求懒加载，复用单个 SDK QuoteContext；关闭应用时释放连接。
 未配置凭证仍可启动后端，股票目录也可继续查数据库；行情请求会报上游错误，
 后端日志提示缺失配置名称。已有缓存仍按原降级规则处理。不会自动刷新 Token。
@@ -80,9 +84,24 @@ App 内的行情权限与 OpenAPI 权限独立；港股 BMP 或延迟权限并�
 
 ## 本次完成范围
 
-已接入官方 SDK 并完成 Maven 编译，未运行测试或启动本地服务器。
-尚未提供长桥三项凭证，因此未验证真实账户的报价、图表、权限及连通性。
-填入配置后重启后端即可使用；无需重建证券表或清理现有股票目录。
+2026-10-11 使用用户环境变量中的凭证完成真实只读验证；没有保存或输出凭证，
+没有运行单元测试，没有另起后端服务器。用户重新打开 IDEA 并重启后端后，
+本地 `3000` 的三市场报价、分时、500 根日 K、50 条股票分页、指数卡全部返回 HTTP 200。
+
+| 标的 | 报价 | 分时点数 | HTTP 日 K 根数 | 复权 |
+|---|---|---|---|---|
+| `AAPL.US` | 336.64 | 390 | 500 | qfq |
+| `00700.HK` | 424.8 | 331 | 500 | qfq |
+| `600519.SH` | 1263.0 | 241 | 500 | qfq |
+
+适配器直接取历史日 K 也验证了 560 根（含均线预留）；最后交易日为 2026-10-09。
+指数卡 CN 4 个、HK 2 个、US 3 个均有报价（标普仍使用原源）。
+每页 50 个股票，实际有报价 US 49 个、HK 48 个、CN 37 个；剩余标的保留名称和代码。
+这不代表所有历史证券都被长桥覆盖：当时三市场 `syncComplete=false`，
+当前数据库目录仍包含旧记录，不能把接口 200 或已有总数视为目录同步完成。
+
+配置在 Windows 用户环境变量时，已启动的 IDEA 不会自动刷新环境；
+需完全退出并重开 IDEA，再启动后端。凭证或配置变化后也需要重启。
 
 官方依据：[SDK 源码](https://github.com/longbridge/openapi/tree/main/java)、
 [Maven 发布版本](https://repo.maven.apache.org/maven2/io/github/longbridge/openapi-sdk/maven-metadata.xml)、

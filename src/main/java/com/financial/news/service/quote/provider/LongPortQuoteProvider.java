@@ -162,7 +162,7 @@ public class LongPortQuoteProvider implements QuoteProvider {
                         config.getLongportAccessToken())) {
                     String region = config.getLongportRegion();
                     if (!Set.of("cn", "hk").contains(region)) throw new UpstreamException("LONGPORT_REGION 必须为 cn 或 hk");
-                    String host = "cn".equals(region) ? "longport.cn" : "longportapp.com";
+                    String host = "cn".equals(region) ? "longbridge.cn" : "longbridge.com";
                     sdkConfig.httpUrl("https://openapi." + host)
                             .quoteWebsocketUrl("wss://openapi-quote." + host + "/v2")
                             .disablePrintQuotePackages();
